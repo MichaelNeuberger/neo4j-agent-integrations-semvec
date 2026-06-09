@@ -8,16 +8,16 @@ For the full Semvec runtime documentation see
 <https://semvec-docs.pages.dev/>.
 
 ```python
-from src.core.embedder import SentenceTransformerEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
 semvec = SemvecClient(embedder=SentenceTransformerEmbedder())
 ```
 
 When `embedder` is omitted, Semvec lazily loads
-`sentence-transformers` with the default 384-dimensional MiniLM model.
-For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
-`src.core.embedder`.
+`sentence-transformers` with the default 768-dimensional `all-mpnet-base-v2`
+model. For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
+`semvec_neo4j.core.embedder`.
 
 ---
 
@@ -38,7 +38,7 @@ For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
 
 | Method | Returns |
 |---|---|
-| `create_session(dimension, model_name, use_meta_pss=False, enable_topic_switch=True)` | `{session_id, created}` |
+| `create_session(dimension, model_name, use_cortex=False, enable_topic_switch=True)` | `{session_id, created}` |
 | `export_session(session_id)` | `{session_id, state_dict, checksum}` |
 | `import_session(session_id, state_dict)` | `{session_id, imported}` |
 | `add_anchor(session_id, embedding)` | `{session_id, anchor_count}` |
@@ -98,8 +98,8 @@ For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
 ## End-to-end example
 
 ```python
-from src.core.embedder import SentenceTransformerEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
 semvec = SemvecClient(embedder=SentenceTransformerEmbedder())
 

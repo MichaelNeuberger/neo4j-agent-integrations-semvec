@@ -311,14 +311,17 @@ Bridge:       AgentSession → INVESTIGATED {step, phase, drift_score, started_a
 ```
 semvec_neo4j/                  # repo root (PyPI package: semvec_neo4j)
   src/
-    core/
-      semvec_client.py         # In-process Semvec client (Layers 1-7)
-      embedder.py              # HashEmbedder (offline) + SentenceTransformerEmbedder
-      drift_detector.py        # Thin bridge: Semvec → Neo4j (no heuristics)
-    mcp/
-      semvec_mcp_server.py     # MCP tools for agent frameworks
-    persistence/               # Neo4j stores (session, state, phase, drift, memory, cluster, region)
-    analytics/                 # Similarity, influence, trajectories
+    semvec_neo4j/              # the installable package (src layout)
+      core/
+        semvec_client.py       # In-process Semvec client (Layers 1-7)
+        embedder.py            # HashEmbedder (offline) + SentenceTransformerEmbedder
+        drift_detector.py      # Thin bridge: Semvec → Neo4j (no heuristics)
+      mcp/
+        semvec_mcp_server.py   # MCP tools for agent frameworks
+      persistence/             # Neo4j stores: session, state, phase, drift, memory,
+                               # cluster, region, agent, observer, anomaly, literal-fact
+      network/                 # Cluster/network coordination
+      analytics/               # Similarity, influence, trajectories
   scripts/
     interactive_demo.py        # 7 scenarios showcasing Semvec × Neo4j
     seed_test_data.py          # Bulk seed healthcare + Semvec data
