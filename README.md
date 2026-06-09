@@ -1,5 +1,13 @@
 # Semvec + Neo4j: Semantic Memory Meets Knowledge Graphs
 
+> **Persistent, constant-cost semantic memory for multi-agent LLM systems** — combining [Semvec](https://pypi.org/project/semvec/) drift detection with a Neo4j knowledge graph. Agent memory, multi-agent clusters, semantic drift detection, and verbatim-fact persistence, all queryable in one graph.
+
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![Neo4j 5.x](https://img.shields.io/badge/Neo4j-5.11%2B-008CC1.svg)
+![semvec 0.7+](https://img.shields.io/badge/semvec-0.7%2B-7b53a8.svg)
+![Tests](https://img.shields.io/badge/tests-274%20passing-brightgreen.svg)
+
 **What happens when you give an AI agent infinite memory AND a knowledge graph?**
 
 [Semvec](https://pypi.org/project/semvec/) compresses any conversation into a fixed-size context block — O(1) memory per turn, no matter how long the conversation. It runs entirely in-process: no API key, no network round-trips. Neo4j stores the structured world the agent operates in: patients, medications, providers, diagnoses, treatments, facilities, and all the relationships between them.
