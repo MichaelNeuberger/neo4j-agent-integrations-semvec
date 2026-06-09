@@ -39,6 +39,23 @@ Neo4j holds the complete healthcare knowledge graph: 5 patients, 5 providers, 5 
 
 ---
 
+## How it compares
+
+Agent-memory frameworks like [Mem0](https://github.com/mem0ai/mem0), [Zep / Graphiti](https://github.com/getzep/graphiti), [Letta (MemGPT)](https://github.com/letta-ai/letta), and LangMem focus on the *memory layer* on its own. This project is different in two ways: Semvec computes memory **in-process with no generative-LLM calls at ingest** (no API key, no per-turn network egress), and Neo4j stores that memory **in the same graph as your domain knowledge** — so a single Cypher query joins *what the agent discussed* with *what actually exists*.
+
+| | **Semvec + Neo4j** | Mem0 | Zep / Graphiti | Letta |
+|---|---|---|---|---|
+| Memory substrate | Neo4j (graph + vector) | vector + graph + KV | temporal knowledge graph | hierarchical tiers |
+| Generative-LLM calls at ingest | none (in-process) | LLM extraction | LLM extraction | LLM-managed |
+| Domain graph in the **same** store | yes — the `INVESTIGATED` bridge | no | partial | no |
+| Semantic drift detection | yes (first-class signal) | no | no | no |
+| Multi-agent clusters / regions / observer | yes | no | no | partial |
+| Verbatim-fact persistence (byte-exact) | yes (`LiteralFact`) | no | no | no |
+
+When to reach for this: you already run Neo4j (or want one operational system for both memory and domain), you need per-turn drift/topic-switch signals, or you coordinate **multiple agents** over shared state. Semvec itself is a proprietary engine ([`pip install semvec`](https://pypi.org/project/semvec/)); this repository is the MIT-licensed Neo4j integration on top of it.
+
+---
+
 ## Architecture
 
 ```
@@ -177,7 +194,7 @@ RETURN s, inv, pat, diag, treat, med, drift, cluster
 ### Setup
 
 ```bash
-git clone https://github.com/MichaelNeuberger/neo4j-agent-integrations.git
+git clone https://github.com/VersinoPsiOmega/Semvec-neo4j-agent-integration.git
 cd neo4j-agent-integrations
 
 # 1. Create the Python environment
