@@ -29,6 +29,9 @@ from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Repo root, so `from scripts.demo_helpers import …` resolves when the demo
+# is started as `python scripts/interactive_demo.py`.
+sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 from semvec_neo4j.core.embedder import SentenceTransformerEmbedder

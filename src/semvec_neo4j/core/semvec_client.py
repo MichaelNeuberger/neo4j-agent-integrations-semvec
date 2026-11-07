@@ -15,6 +15,8 @@ from typing import Any, Optional
 # ``semvec.api.__init__`` pulls in FastAPI/slowapi at import time, which
 # we don't need for in-process orchestration. We side-step it by
 # registering a minimal stub so the manager submodules import directly.
+import functools
+import inspect
 import sys
 import types
 import os
@@ -35,10 +37,15 @@ from semvec.api.cluster_manager import ClusterManager  # noqa: E402
 from semvec.api.event_bus import DriftEventBus  # noqa: E402
 from semvec.api.global_observer import GlobalObserver  # noqa: E402
 from semvec.api.network_manager import NetworkManager  # noqa: E402
+from semvec.api.owner_scope import OwnerScope  # noqa: E402
 from semvec.api.regional_manager import RegionalManager  # noqa: E402
 from semvec.api.session_manager import SessionManager  # noqa: E402
 
 _VALID_DRIFT_PHASES = {"stable", "shifting", "drifted"}
+
+#: Owner used when a client is built without ``owner_subject``. Named rather
+#: than anonymous because Semvec refuses user partitions for the anonymous owner.
+DEFAULT_OWNER_SUBJECT = "semvec-neo4j"
 
 
 class _DimensionedSessionManager(SessionManager):
@@ -49,15 +56,74 @@ class _DimensionedSessionManager(SessionManager):
     defaults derived from the embedder so every session lines up.
     """
 
-    def __init__(self, default_dimension: int = 768, default_model: str = "all-mpnet-base-v2") -> None:
+    def __init__(
+        self,
+        default_dimension: int = 768,
+        default_model: str = "all-mpnet-base-v2",
+        default_scope: OwnerScope | None = None,
+    ) -> None:
         super().__init__()
         self._default_dim = int(default_dimension)
         self._default_model = default_model
+        self._default_scope = default_scope
 
     def create_session(self, *args, **kwargs):  # type: ignore[override]
         kwargs.setdefault("dimension", self._default_dim)
         kwargs.setdefault("model_name", self._default_model)
+        kwargs.setdefault("scope", self._default_scope)
         return super().create_session(*args, **kwargs)
+
+
+class _ScopedClusterManager(ClusterManager):
+    """ClusterManager whose clusters belong to the client's scope by default."""
+
+    def __init__(
+        self, session_manager: SessionManager, default_scope: OwnerScope | None
+    ) -> None:
+        super().__init__(session_manager)
+        self._default_scope = default_scope
+
+
+class _ScopedRegionalManager(RegionalManager):
+    """RegionalManager whose regions belong to the client's scope by default."""
+
+    def __init__(self, *args: Any, default_scope: OwnerScope | None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._default_scope = default_scope
+
+
+def _with_default_scope(method: Any) -> Any:
+    """Wrap a scope-taking manager method so it falls back to ``self._default_scope``.
+
+    Since Semvec 0.8.9 every session, cluster and region access is
+    ownership-checked: ``scope=None`` means "anonymous" and matches only
+    anonymous records. A client owns everything it creates under one scope,
+    and Semvec's managers call each other without passing a scope, so the
+    scope is supplied here rather than at each call site.
+    """
+    signature = inspect.signature(method)
+
+    @functools.wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if "scope" not in signature.bind_partial(self, *args, **kwargs).arguments:
+            kwargs["scope"] = self._default_scope
+        return method(self, *args, **kwargs)
+
+    return wrapper
+
+
+def _install_default_scope(subclass: type, base: type) -> None:
+    """Override every public scope-taking method of ``base`` on ``subclass``."""
+    for name, method in inspect.getmembers(base, inspect.isfunction):
+        if name.startswith("_") or name in vars(subclass):
+            continue
+        if "scope" in inspect.signature(method).parameters:
+            setattr(subclass, name, _with_default_scope(method))
+
+
+_install_default_scope(_DimensionedSessionManager, SessionManager)
+_install_default_scope(_ScopedClusterManager, ClusterManager)
+_install_default_scope(_ScopedRegionalManager, RegionalManager)
 
 
 class SemvecClient:
@@ -78,6 +144,14 @@ class SemvecClient:
         provided embedder. Ignored if ``embedder`` is supplied.
     model_name:
         Sentence-transformer model name advertised in session metadata.
+    owner_subject:
+        Owner of every session, cluster, region, observer and network
+        partition this client creates (Semvec >= 0.8.9 checks ownership on
+        every access). Defaults to :data:`DEFAULT_OWNER_SUBJECT`, which is
+        enough for a single in-process client; pass your own name when
+        several clients share one Semvec runtime and must not see each
+        other's state. ``None`` selects Semvec's anonymous owner, under
+        which user partitions (:meth:`switch_user`) are refused.
     """
 
     def __init__(
@@ -85,24 +159,29 @@ class SemvecClient:
         embedder: Any = None,
         dimension: int = 768,
         model_name: str = "all-mpnet-base-v2",
+        *,
+        owner_subject: str | None = DEFAULT_OWNER_SUBJECT,
     ) -> None:
         if embedder is not None:
             self._dimension = int(embedder.get_dimension())
         else:
             self._dimension = int(dimension)
         self._model_name = model_name
+        self._owner_subject = owner_subject
+        self._scope = OwnerScope(owner_subject) if owner_subject is not None else None
 
         self._sessions = _DimensionedSessionManager(
             default_dimension=self._dimension,
             default_model=self._model_name,
+            default_scope=self._scope,
         )
         if embedder is not None:
             self._sessions.inject_embedder(embedder)
 
-        self._clusters = ClusterManager(self._sessions)
+        self._clusters = _ScopedClusterManager(self._sessions, self._scope)
         self._event_bus = DriftEventBus()
-        self._regions = RegionalManager(
-            self._sessions, self._clusters, self._event_bus
+        self._regions = _ScopedRegionalManager(
+            self._sessions, self._clusters, self._event_bus, default_scope=self._scope
         )
         self._observer: Optional[GlobalObserver] = None
 
@@ -773,6 +852,7 @@ class SemvecClient:
             self._observer = GlobalObserver(
                 cluster_manager=self._clusters,
                 regional_manager=self._regions,
+                owner_subject=self._owner_subject,
                 session_manager=self._sessions,
                 sample_interval_seconds=sample_interval_seconds,
             )
@@ -824,28 +904,35 @@ class SemvecClient:
         max_weight: float = 0.15,
     ) -> dict:
         result = self._network.transfer_delta(
-            source_session_id, target_session_id, max_weight=max_weight
+            source_session_id, target_session_id, self._scope, max_weight=max_weight
         )
         if result is None:
             raise ValueError("Source or target session not found")
         return result
 
     def switch_user(self, user_id: str) -> dict:
-        return self._network.switch_user(user_id)
+        result = self._network.switch_user(user_id, self._scope)
+        if result is None:
+            raise ValueError(
+                f"User partition for {user_id!r} exists but is owned by another subject"
+            )
+        return result
 
     def get_active_user(self) -> dict:
-        return {"active_user": self._network.get_active_user()}
+        return {"active_user": self._network.get_active_user(scope=self._scope)}
 
     def propose_consensus(
         self, proposer_session_id: str, target_embedding: list[float]
     ) -> dict:
-        result = self._network.propose_consensus(proposer_session_id, target_embedding)
+        result = self._network.propose_consensus(
+            proposer_session_id, target_embedding, self._scope
+        )
         if result is None:
             raise ValueError(f"Proposer session not found: {proposer_session_id}")
         return result
 
     def get_trust_scores(self) -> dict:
-        return {"trust_scores": self._network.get_trust_scores()}
+        return {"trust_scores": self._network.get_trust_scores(self._scope)}
 
     # ------------------------------------------------------------------
     # Internal — drift event publication mirrors REST orchestration.

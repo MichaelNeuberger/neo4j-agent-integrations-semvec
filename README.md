@@ -5,7 +5,7 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![Neo4j 5.x](https://img.shields.io/badge/Neo4j-5.11%2B-008CC1.svg)
-![semvec 0.7+](https://img.shields.io/badge/semvec-0.7%2B-7b53a8.svg)
+![semvec 0.8.9+](https://img.shields.io/badge/semvec-0.8.9%2B-7b53a8.svg)
 ![Tests](https://img.shields.io/badge/tests-274%20passing-brightgreen.svg)
 
 **What happens when you give an AI agent infinite memory AND a knowledge graph?**
@@ -208,7 +208,9 @@ uv pip install -e ".[dev]"     # or: pip install -e ".[dev]"
 #    The demo and tests refuse to start with missing values rather
 #    than falling back to silent defaults.
 cp .env.example .env
-$EDITOR .env                   # fill in NEO4J_TEST_PASSWORD + OPENAI_*
+$EDITOR .env                   # fill in NEO4J_TEST_PASSWORD, SEMVEC_LICENSE_KEY + OPENAI_*
+                               # (without a licence key semvec >= 0.8.9 throttles
+                               #  to 5 QPS, which breaks seeding and the demo)
 
 # 4. Seed the healthcare graph in Neo4j (uses the fixtures bundled
 #    under healthcare-fixtures/ — same patients, providers, diagnoses
