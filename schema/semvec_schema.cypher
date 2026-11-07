@@ -21,9 +21,6 @@ CREATE CONSTRAINT phase_unique IF NOT EXISTS
 CREATE CONSTRAINT memory_unique IF NOT EXISTS
   FOR (m:Memory) REQUIRE m.memory_id IS UNIQUE;
 
-CREATE CONSTRAINT memory_cluster_unique IF NOT EXISTS
-  FOR (mc:MemoryCluster) REQUIRE mc.cluster_id IS UNIQUE;
-
 CREATE CONSTRAINT cluster_unique IF NOT EXISTS
   FOR (c:Cluster) REQUIRE c.cluster_id IS UNIQUE;
 
@@ -85,10 +82,10 @@ CREATE INDEX agent_session_status IF NOT EXISTS
 
 // === Phase 3: literal facts + cortex consensus ===
 //
-// LiteralFact mirrors entries written via SemvecClient.store_facts_as_entities;
-// each session may store the same fact key only once (the upstream literal
-// cache de-duplicates on key, this constraint pins the same property at
-// the graph layer for clients that mirror facts into Neo4j).
+// LiteralFact stores verbatim facts extracted via SemvecClient.extract_facts
+// and mirrored into Neo4j by Neo4jLiteralFactStore. Each session may store the
+// same fact key only once; this constraint enforces the (session_id, key)
+// upsert so re-extracting the same span is idempotent.
 
 CREATE CONSTRAINT literal_fact_unique IF NOT EXISTS
   FOR (f:LiteralFact) REQUIRE (f.session_id, f.key) IS UNIQUE;

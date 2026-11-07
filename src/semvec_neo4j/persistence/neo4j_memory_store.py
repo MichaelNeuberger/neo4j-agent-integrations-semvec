@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import MemoryStore
-from src.persistence.models import Memory, MemoryTier
+from semvec_neo4j.persistence.base import MemoryStore
+from semvec_neo4j.persistence.models import Memory, MemoryTier
 
 
 class Neo4jMemoryStore(MemoryStore):

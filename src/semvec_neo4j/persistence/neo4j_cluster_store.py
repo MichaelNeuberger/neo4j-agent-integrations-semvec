@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import ClusterStore
-from src.persistence.models import (
+from semvec_neo4j.persistence.base import ClusterStore
+from semvec_neo4j.persistence.models import (
     AgentSession, AggregationStrategy, Cluster, SemanticState, SessionStatus,
 )
 

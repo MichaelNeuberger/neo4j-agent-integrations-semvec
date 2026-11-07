@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
 
 
 class TrajectoryAnalyzer:

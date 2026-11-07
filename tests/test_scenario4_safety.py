@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import math
 import pytest
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
 
 SAFETY_DIM = 32
@@ -31,7 +31,7 @@ def _pseudo_embed(text: str, dim: int = SAFETY_DIM) -> list[float]:
 
 @pytest.fixture(scope="module")
 def semvec():
-    return SemvecClient(embedder=HashEmbedder(dimension=SAFETY_DIM), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=SAFETY_DIM))
 
 
 @pytest.fixture

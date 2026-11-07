@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from src.core.semvec_client import SemvecClient
-from src.persistence.models import (
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.persistence.models import (
     DriftEvent,
     DriftPhase,
     DriftSeverity,
@@ -25,9 +25,9 @@ from src.persistence.models import (
     PhaseName,
     SemanticState,
 )
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_phase_store import Neo4jPhaseStore
-from src.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_phase_store import Neo4jPhaseStore
+from semvec_neo4j.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
 
 
 _DRIFT_PHASE_MAP = {
@@ -61,11 +61,22 @@ class DriftDetector:
         state_store: Neo4jStateStore,
         phase_store: Neo4jPhaseStore,
         drift_event_store: Neo4jDriftEventStore,
+        drift_score_threshold: Optional[float] = None,
+        sim_ceiling: float = 0.45,
     ):
         self._semvec = semvec_client
         self._state_store = state_store
         self._phase_store = phase_store
         self._drift_event_store = drift_event_store
+
+        # Optional combined-rule persistence: when drift_score_threshold is
+        # set, a DriftEvent node is also persisted for genuine specialty
+        # switches that clear (drift_score >= threshold AND top_similarity <=
+        # sim_ceiling) even if Semvec's own binary drift_detected (>= 0.5) has
+        # not tripped. Left as None, only Semvec's verdict persists a node —
+        # preserving the original library behaviour.
+        self._drift_score_threshold = drift_score_threshold
+        self._sim_ceiling = sim_ceiling
 
         self._semvec_sessions: dict[str, str] = {}
         self._prev_responses: dict[str, str | None] = {}
@@ -116,7 +127,12 @@ class DriftDetector:
         self._update_phase(session_id, drift_phase, drift_score, top_similarity)
 
         # === Mirror to Neo4j: Drift Event ===
-        if drift_detected:
+        combined_drift = (
+            self._drift_score_threshold is not None
+            and drift_score >= self._drift_score_threshold
+            and top_similarity <= self._sim_ceiling
+        )
+        if drift_detected or combined_drift:
             event = DriftEvent(
                 drift_score=drift_score,
                 drift_phase=drift_phase,

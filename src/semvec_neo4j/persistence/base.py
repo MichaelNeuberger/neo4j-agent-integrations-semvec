@@ -6,12 +6,16 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional
 
-from src.persistence.models import (
+from semvec_neo4j.persistence.models import (
+    Agent,
     AgentSession,
+    AnomalyEvent,
     Cluster,
     ConsensusEvent,
     DriftEvent,
     DriftSeverity,
+    GlobalObserver,
+    LiteralFact,
     Memory,
     MemoryTier,
     Phase,
@@ -236,3 +240,79 @@ class RegionStore(ABC):
         self, region_id: str, limit: int = 10
     ) -> list[ConsensusEvent]:
         """Get recent consensus events for a region."""
+
+
+class AgentStore(ABC):
+    """Manages Agent nodes and their link to sessions.
+
+    An agent runs many sessions over time; the Agent node groups them so
+    cross-session analytics (trust, influence over time) become possible.
+    """
+
+    @abstractmethod
+    def ensure_agent(self, agent: Agent) -> Agent:
+        """Create the agent node if absent (idempotent MERGE on agent_id)."""
+
+    @abstractmethod
+    def get_agent(self, agent_id: str) -> Optional[Agent]:
+        """Get an agent by ID."""
+
+    @abstractmethod
+    def link_to_session(self, agent_id: str, session_id: str) -> bool:
+        """Link an agent to one of its sessions via (Agent)-[:RAN]->(AgentSession)."""
+
+    @abstractmethod
+    def get_sessions(self, agent_id: str) -> list[AgentSession]:
+        """Get all sessions an agent has run."""
+
+
+class GlobalObserverStore(ABC):
+    """Manages GlobalObserver nodes — the anchor for network anomalies."""
+
+    @abstractmethod
+    def create_observer(self, observer: GlobalObserver) -> GlobalObserver:
+        """Create the observer node (idempotent MERGE on observer_id)."""
+
+    @abstractmethod
+    def get_observer(self, observer_id: str) -> Optional[GlobalObserver]:
+        """Get an observer by ID."""
+
+    @abstractmethod
+    def observe_region(self, observer_id: str, region_id: str) -> bool:
+        """Link an observer to a region via (GlobalObserver)-[:OBSERVES]->(Region)."""
+
+
+class AnomalyEventStore(ABC):
+    """Manages AnomalyEvent nodes detected by the global observer."""
+
+    @abstractmethod
+    def create_anomaly_event(
+        self, observer_id: str, event: AnomalyEvent
+    ) -> AnomalyEvent:
+        """Create an anomaly event linked to the detecting observer."""
+
+    @abstractmethod
+    def get_anomaly_events(
+        self, observer_id: str, limit: int = 20
+    ) -> list[AnomalyEvent]:
+        """Query anomaly events for an observer (newest first)."""
+
+    @abstractmethod
+    def get_anomaly_event_count(self, observer_id: str) -> int:
+        """Count total anomaly events for an observer."""
+
+
+class LiteralFactStore(ABC):
+    """Manages LiteralFact nodes — verbatim facts mirrored from a session."""
+
+    @abstractmethod
+    def store_fact(self, session_id: str, fact: LiteralFact) -> LiteralFact:
+        """Store (idempotent upsert) a literal fact linked to its session."""
+
+    @abstractmethod
+    def get_facts(self, session_id: str, limit: int = 50) -> list[LiteralFact]:
+        """Get literal facts for a session (newest first)."""
+
+    @abstractmethod
+    def get_fact_count(self, session_id: str) -> int:
+        """Count literal facts for a session."""

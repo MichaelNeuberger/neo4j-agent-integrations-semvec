@@ -166,6 +166,8 @@ class AnomalyEvent:
     anomaly_type: AnomalyType = AnomalyType.SYSTEMIC_DRIFT
     severity: float = 0.0
     affected_clusters: list[str] = field(default_factory=list)
+    description: str = ""
+    observer_id: str = ""
 
 
 @dataclass
@@ -173,3 +175,24 @@ class GlobalObserver:
     observer_id: str = field(default_factory=_new_id)
     pattern_vector: list[float] = field(default_factory=list)
     last_scan: Optional[datetime] = None
+
+
+@dataclass
+class LiteralFact:
+    """A verbatim fact extracted from text and mirrored into Neo4j.
+
+    Mirrors the entries produced by Semvec's compliance extractor
+    (``numeric`` / ``date`` / ``identifier``). ``key`` is the verbatim
+    span that anchors the fact; the ``(session_id, key)`` pair is unique
+    per the schema, so re-extracting the same span is idempotent.
+    """
+
+    fact_id: str = field(default_factory=_new_id)
+    session_id: str = ""
+    key: str = ""
+    kind: str = ""           # "numeric" | "date" | "identifier"
+    value: str = ""          # always stored as a string (Decimal/date -> str)
+    unit: str = ""           # only for kind == "numeric"
+    id_type: str = ""        # only for kind == "identifier"
+    importance: float = 1.0
+    created_at: Optional[datetime] = None

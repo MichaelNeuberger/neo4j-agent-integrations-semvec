@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import SessionStore
-from src.persistence.models import AgentSession, SessionStatus
+from semvec_neo4j.persistence.base import SessionStore
+from semvec_neo4j.persistence.models import AgentSession, SessionStatus
 
 
 class Neo4jSessionStore(SessionStore):

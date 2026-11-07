@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import RegionStore
-from src.persistence.models import (
+from semvec_neo4j.persistence.base import RegionStore
+from semvec_neo4j.persistence.models import (
     AggregationStrategy, Cluster, ConsensusEvent, ConsensusOutcome, Region,
 )
 

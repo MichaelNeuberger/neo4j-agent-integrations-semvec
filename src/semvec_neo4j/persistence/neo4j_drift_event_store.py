@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import DriftEventStore
-from src.persistence.models import DriftEvent, DriftPhase, DriftSeverity
+from semvec_neo4j.persistence.base import DriftEventStore
+from semvec_neo4j.persistence.models import DriftEvent, DriftPhase, DriftSeverity
 
 
 # Severity ordering for filtering

@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import StateStore
-from src.persistence.models import SemanticState
+from semvec_neo4j.persistence.base import StateStore
+from semvec_neo4j.persistence.models import SemanticState
 
 
 class Neo4jStateStore(StateStore):

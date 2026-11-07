@@ -10,9 +10,9 @@ from typing import Optional
 
 import numpy as np
 
-from src.persistence.models import AggregationStrategy, Cluster, SemanticState
-from src.persistence.neo4j_cluster_store import Neo4jClusterStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.models import AggregationStrategy, Cluster, SemanticState
+from semvec_neo4j.persistence.neo4j_cluster_store import Neo4jClusterStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
 
 
 class ClusterManager:

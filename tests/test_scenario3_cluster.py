@@ -10,15 +10,15 @@ Tests that:
 from __future__ import annotations
 
 import pytest
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
 
 # ── Local Semvec runtime ─────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
 def semvec():
-    return SemvecClient(embedder=HashEmbedder(dimension=32), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=32))
 
 
 @pytest.fixture

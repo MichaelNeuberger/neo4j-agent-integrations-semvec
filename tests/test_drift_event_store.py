@@ -3,12 +3,12 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from src.persistence.models import (
+from semvec_neo4j.persistence.models import (
     AgentSession, DriftEvent, DriftPhase, DriftSeverity, SemanticState,
 )
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
 from tests.conftest import make_random_vector
 
 
@@ -34,7 +34,7 @@ def session_with_state(session_store, state_store):
     session_store.create_session(session)
     state = SemanticState(
         state_id="drift-state-1",
-        vector=make_random_vector(384, seed=1),
+        vector=make_random_vector(768, seed=1),
         step=0, beta=0.1,
     )
     state_store.append_state(session.session_id, state, cosine_similarity=1.0)

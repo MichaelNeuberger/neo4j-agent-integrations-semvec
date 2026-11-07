@@ -7,8 +7,8 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.persistence.base import PhaseStore
-from src.persistence.models import Phase, PhaseName
+from semvec_neo4j.persistence.base import PhaseStore
+from semvec_neo4j.persistence.models import Phase, PhaseName
 
 
 class Neo4jPhaseStore(PhaseStore):

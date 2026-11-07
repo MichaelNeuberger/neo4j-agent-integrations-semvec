@@ -1,5 +1,13 @@
 # Semvec + Neo4j: Semantic Memory Meets Knowledge Graphs
 
+> **Persistent, constant-cost semantic memory for multi-agent LLM systems** — combining [Semvec](https://pypi.org/project/semvec/) drift detection with a Neo4j knowledge graph. Agent memory, multi-agent clusters, semantic drift detection, and verbatim-fact persistence, all queryable in one graph.
+
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![Neo4j 5.x](https://img.shields.io/badge/Neo4j-5.11%2B-008CC1.svg)
+![semvec 0.7+](https://img.shields.io/badge/semvec-0.7%2B-7b53a8.svg)
+![Tests](https://img.shields.io/badge/tests-274%20passing-brightgreen.svg)
+
 **What happens when you give an AI agent infinite memory AND a knowledge graph?**
 
 [Semvec](https://pypi.org/project/semvec/) compresses any conversation into a fixed-size context block — O(1) memory per turn, no matter how long the conversation. It runs entirely in-process: no API key, no network round-trips. Neo4j stores the structured world the agent operates in: patients, medications, providers, diagnoses, treatments, facilities, and all the relationships between them.
@@ -31,6 +39,23 @@ Neo4j holds the complete healthcare knowledge graph: 5 patients, 5 providers, 5 
 
 ---
 
+## How it compares
+
+Agent-memory frameworks like [Mem0](https://github.com/mem0ai/mem0), [Zep / Graphiti](https://github.com/getzep/graphiti), [Letta (MemGPT)](https://github.com/letta-ai/letta), and LangMem focus on the *memory layer* on its own. This project is different in two ways: Semvec computes memory **in-process with no generative-LLM calls at ingest** (no API key, no per-turn network egress), and Neo4j stores that memory **in the same graph as your domain knowledge** — so a single Cypher query joins *what the agent discussed* with *what actually exists*.
+
+| | **Semvec + Neo4j** | Mem0 | Zep / Graphiti | Letta |
+|---|---|---|---|---|
+| Memory substrate | Neo4j (graph + vector) | vector + graph + KV | temporal knowledge graph | hierarchical tiers |
+| Generative-LLM calls at ingest | none (in-process) | LLM extraction | LLM extraction | LLM-managed |
+| Domain graph in the **same** store | yes — the `INVESTIGATED` bridge | no | partial | no |
+| Semantic drift detection | yes (first-class signal) | no | no | no |
+| Multi-agent clusters / regions / observer | yes | no | no | partial |
+| Verbatim-fact persistence (byte-exact) | yes (`LiteralFact`) | no | no | no |
+
+When to reach for this: you already run Neo4j (or want one operational system for both memory and domain), you need per-turn drift/topic-switch signals, or you coordinate **multiple agents** over shared state. Semvec itself is a proprietary engine ([`pip install semvec`](https://pypi.org/project/semvec/)); this repository is the MIT-licensed Neo4j integration on top of it.
+
+---
+
 ## Architecture
 
 ```
@@ -59,6 +84,13 @@ Semvec does all computation (drift scoring, context compression, short-circuit d
 
 ## What the Demo Shows
 
+### Scenario 1: Live Drift + Token Savings (Layer 1 — Chat Proxy)
+
+Free-form chat against a live LLM endpoint. Each turn shows two things side by side: the drift panel (similarity, drift score, Semvec phase, Neo4j state chain) and the token-savings panel — `SemvecChatProxy` reports the PSS-compressed prompt token count next to what a naïve full-history replay would have cost. The headline ~8× token reduction reproduces live against your own questions.
+
+**Semvec signals**: `create_chat_proxy`, `run`, `drift_score`, `drift_phase`
+**Neo4j graph**: AgentSession → SemanticState chain growing turn by turn
+
 ### Scenario 2: Drift Detection + Short-Circuit
 
 An agent investigates **James Morrison** (Type 2 Diabetes, Metformin, Lisinopril, Atorvastatin) across 17 queries. Then switches to **Aisha Patel** (Major Depressive Disorder, Sertraline, CBT). Semvec detects the specialty switch (`drift_score=0.44, phase=drifted`). Returns to **Maria Rodriguez** (AMI, cardiology). Finally, paraphrases of Phase 1 queries trigger short-circuit — LLM skipped, cached context returned.
@@ -79,7 +111,7 @@ Three doctors examine **David Park** (Essential Hypertension + COPD):
 ### Scenario 4: Medication Safety Guard (Layer 1b — Anchors, Triggers, Isolation)
 
 An oncology pharmacist monitors **Carlos Gutierrez** (Chemotherapy Cycle 1):
-- **Drift Anchor** locks session to oncology domain (real 384-dim embedding via sentence-transformers)
+- **Drift Anchor** locks session to oncology domain (real 768-dim embedding via sentence-transformers)
 - **Resonance Triggers** on "CRITICAL" and "contraindication" keywords
 - **Synthetic Memory Injection**: contraindications from Neo4j graph (Amoxicillin↔Metformin, Atorvastatin↔Sertraline) injected into Semvec memory tiers
 - **Input Isolation**: QUARANTINE mode filters off-topic queries
@@ -94,27 +126,42 @@ Two department clusters across two facilities:
 - **Cardiology** at Memorial General → Maria Rodriguez (AMI)
 - **Emergency** at Riverside Medical → James Morrison (ER visit)
 
-Both clusters are in a Semvec **Region** (`consensus_threshold=0.5`). A **Global Observer** monitors for cross-cluster anomalies. When both departments drift to admin topics simultaneously, the Region detects 2 drift events and the Observer samples the anomaly.
+Both clusters are in a Semvec **Region** (`consensus_threshold=0.5`). A **Global Observer** monitors for cross-cluster anomalies. When both departments drift to admin topics simultaneously, the Region detects 2 drift events and the Observer samples the anomaly. On top of that signal, a **ConsensusEngine** runs an explicit qualified-majority vote (supervisor weighted 1.5) on whether to escalate to a network-wide incident.
 
-**Semvec signals**: `create_region`, `get_region_events`, `create_observer`, `observer_sample`, `get_anomalies`
+**Semvec signals**: `create_region`, `get_region_events`, `create_observer`, `observer_sample`, `get_anomalies`, `create_consensus_engine`, `submit_consensus_proposal`, `vote_on_consensus`, `evaluate_consensus`
 **Neo4j graph**: Region → CONTAINS_CLUSTER → Clusters → MEMBER_OF ← Agents → INVESTIGATED → Patient/Facility
 
 ### Scenario 6: Shift Handoff (Layer 5 — Export/Import, Network Transfer)
 
-Night shift **Dr. Volkov** monitors Morrison overnight (6 queries, builds deep Semvec context). She exports her session state (SHA-256 checksum). Day shift **Dr. Tanaka** imports the state + receives a semantic delta transfer. Tanaka's first query immediately shows `sim=0.578` (vs `0.000` baseline without import) — full context continuity across shift change.
+Night shift **Dr. Volkov** monitors Morrison overnight (6 queries, builds deep Semvec context). She exports her session state (SHA-256 checksum). Day shift **Dr. Tanaka** imports the state + receives a semantic delta transfer. Tanaka's first query immediately shows `sim=0.578` (vs `0.000` baseline without import) — full context continuity across shift change. After import, a **behavioural-consistency probe** (`verify_consistency`) runs reference embeddings through both sessions: the SHA-256 checksum catches bit-level corruption, the probe catches algorithmic drift before the imported state is used.
 
-**Semvec signals**: `export_session`, `import_session`, `transfer_delta`
+**Semvec signals**: `export_session`, `import_session`, `transfer_delta`, `verify_consistency`
 **Neo4j graph**: Volkov → INVESTIGATED → Morrison (night) + Tanaka → INVESTIGATED → Morrison (day)
+
+### Scenario 7: Neo4j Cypher Explorer
+
+Run Cypher directly against the graph the previous scenarios produced — including the audit-trail queries from `docs/demo_queries.md` (who investigated whom, which turns short-circuited, where drift fired).
 
 ---
 
 ## The INVESTIGATED Relationship
 
-This is where Semvec and Neo4j truly merge. Every time an agent queries about a healthcare entity, an `INVESTIGATED` relationship is created:
+This is where Semvec and Neo4j truly merge. Every time an agent queries about a healthcare entity, an `INVESTIGATED` relationship is created, carrying a full audit-trail payload:
 
 ```cypher
-(agent:AgentSession)-[:INVESTIGATED {step: 5, drift_score: 0.44, phase: "drifted"}]->(entity:Patient)
+(agent:AgentSession)-[:INVESTIGATED {
+  step: 5, phase: "drifted", drift_score: 0.44,
+  started_at: "2026-06-07T06:12:03Z", ended_at: "2026-06-07T06:12:04Z", duration_ms: 840,
+  query_preview: "What is Morrison's overnight glucose trend?",
+  response_preview: "Glucose stable 110-140 mg/dL overnight ...",
+  top_k_similarity: 0.81, semvec_drift_phase: "stable",
+  short_circuit: false, llm_call: true
+  // per-scenario extras: cluster_id, shift, imported_from,
+  // baseline_delta, paraphrase_of, trigger_keyword, agent_role
+}]->(entity:Patient)
 ```
+
+Conversational state becomes queryable like structured data — and structured data becomes injectable as synthetic memory.
 
 This enables queries that neither system could answer alone:
 
@@ -147,7 +194,7 @@ RETURN s, inv, pat, diag, treat, med, drift, cluster
 ### Setup
 
 ```bash
-git clone https://github.com/MichaelNeuberger/neo4j-agent-integrations.git
+git clone https://github.com/VersinoPsiOmega/Semvec-neo4j-agent-integration.git
 cd neo4j-agent-integrations
 
 # 1. Create the Python environment
@@ -189,8 +236,8 @@ but for orientation:
 
 | Knob | Where | Default | What it controls |
 |---|---|---|---|
-| `DRIFT_THRESHOLD` | `.env` | `0.55` | Drift score above which `_is_drift()` flags a turn as a real topic switch. |
-| `DRIFT_SIM_CEILING` | `.env` | `0.55` | Cosine-similarity ceiling for the same gate — drift_score crosses *and* similarity drops. Together these filter in-domain sub-shifts. |
+| `DRIFT_THRESHOLD` | `.env` | `0.35` | Drift score above which `_is_drift()` flags a turn as a real topic switch. |
+| `DRIFT_SIM_CEILING` | `.env` | `0.45` | Cosine-similarity ceiling for the same gate — drift_score crosses *and* similarity drops. Together these filter in-domain sub-shifts. |
 | `short_circuit_threshold=0.99` | Sc 3 / Sc 6 | — | "Impossible" threshold — forces deterministic MISS during seeding so context accumulates. |
 | `short_circuit_threshold=0.52` | Sc 3 (Volkov, Tanaka) | — | Calibrated below typical paraphrase similarity on the Park topic (MPNet-768) so cluster HITs fire. |
 | `short_circuit_threshold=0.60` | Sc 5 (cardiology, ER) | — | Mid-band threshold for the consensus scenario — HIT on on-topic, MISS on the deliberate admin pivot. |
@@ -222,12 +269,14 @@ Neo4j-backed integration tests need a running database.
 
 | Layer | Capability | `SemvecClient` methods | Scenario |
 |---|---|---|---|
-| **1** | run, store, inline-store, drift detection, short-circuit | `run`, `store` | 1, 2, 3, 5, 6 |
-| **1b** | session control, anchors, triggers, isolation, memory injection | `create_session`, `add_anchor`, `get_anchor_score`, `add_trigger`, `set_isolation`, `inject_memory` | 4 |
+| **1** | run, store, drift detection, short-circuit, live token-savings chat proxy | `run`, `store`, `create_chat_proxy` | 1, 2, 3, 5, 6 |
+| **1b** | session control, anchors, triggers, isolation, memory injection, verbatim facts | `create_session`, `add_anchor`, `get_anchor_score`, `add_trigger`, `set_isolation`, `inject_memory`, `extract_facts`, `store_facts_as_entities` | 4 |
 | **2** | cluster CRUD + run/store/feedback/members | `create_cluster`, `cluster_run`, `cluster_store`, `cluster_feedback`, `add_cluster_member`, `remove_cluster_member` | 3, 5 |
 | **3** | region CRUD, attached clusters, drift events | `create_region`, `add_region_cluster`, `get_region_events` | 5 |
 | **4** | global observer (sample, anomalies, summary) | `create_observer`, `observer_sample`, `get_anomalies`, `get_observer_summary` | 5 |
-| **5** | export/import + network delta + consensus + trust | `export_session`, `import_session`, `transfer_delta`, `propose_consensus`, `get_trust_scores` | 6 |
+| **5** | shift handover: export/import + network delta transfer + trust | `export_session`, `import_session`, `transfer_delta`, `propose_consensus`, `get_trust_scores` | 6 |
+| **6** | behavioural-consistency probe after import | `verify_consistency` | 6 |
+| **7** | explicit consensus voting (5 levels: simple/qualified majority, unanimous, weighted, adaptive) | `create_consensus_engine`, `register_consensus_voter`, `submit_consensus_proposal`, `vote_on_consensus`, `evaluate_consensus`, `get_consensus_statistics` | 5 |
 
 ---
 
@@ -250,7 +299,9 @@ Healthcare:   Patient → DIAGNOSED_WITH → Diagnosis
               Provider → AFFILIATED_WITH → Facility
               Patient → HAD_ENCOUNTER → Encounter
 
-Bridge:       AgentSession → INVESTIGATED {step, drift_score, phase} → (any healthcare entity)
+Bridge:       AgentSession → INVESTIGATED {step, phase, drift_score, started_at, ended_at,
+              duration_ms, query_preview, response_preview, top_k_similarity,
+              semvec_drift_phase, short_circuit, llm_call, …} → (any healthcare entity)
 ```
 
 ---
@@ -260,14 +311,17 @@ Bridge:       AgentSession → INVESTIGATED {step, drift_score, phase} → (any 
 ```
 semvec_neo4j/                  # repo root (PyPI package: semvec_neo4j)
   src/
-    core/
-      semvec_client.py         # In-process Semvec client (Layers 1-5)
-      embedder.py              # HashEmbedder (offline) + SentenceTransformerEmbedder
-      drift_detector.py        # Thin bridge: Semvec → Neo4j (no heuristics)
-    mcp/
-      semvec_mcp_server.py     # MCP tools for agent frameworks
-    persistence/               # Neo4j stores (session, state, phase, drift, memory, cluster, region)
-    analytics/                 # Similarity, influence, trajectories
+    semvec_neo4j/              # the installable package (src layout)
+      core/
+        semvec_client.py       # In-process Semvec client (Layers 1-7)
+        embedder.py            # HashEmbedder (offline) + SentenceTransformerEmbedder
+        drift_detector.py      # Thin bridge: Semvec → Neo4j (no heuristics)
+      mcp/
+        semvec_mcp_server.py   # MCP tools for agent frameworks
+      persistence/             # Neo4j stores: session, state, phase, drift, memory,
+                               # cluster, region, agent, observer, anomaly, literal-fact
+      network/                 # Cluster/network coordination
+      analytics/               # Similarity, influence, trajectories
   scripts/
     interactive_demo.py        # 7 scenarios showcasing Semvec × Neo4j
     seed_test_data.py          # Bulk seed healthcare + Semvec data
@@ -288,4 +342,13 @@ semvec_neo4j/                  # repo root (PyPI package: semvec_neo4j)
 
 ## License
 
-Copyright (c) 2025 Michael Neuberger — All Rights Reserved.
+The `semvec_neo4j` integration code in this repository is released under the
+[MIT License](LICENSE) — free to use, modify, and distribute.
+
+It depends on [`semvec`](https://pypi.org/project/semvec/), a separate
+**proprietary** package distributed on PyPI under its own license terms.
+`semvec_neo4j` builds on top of semvec but does not redistribute or relicense
+it — you obtain semvec directly from PyPI. In short: this integration layer is
+open source; the underlying semvec engine is not.
+
+Copyright (c) 2026 Michael Neuberger.

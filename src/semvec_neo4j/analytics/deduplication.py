@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.persistence.models import MemoryTier
-from src.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.persistence.models import MemoryTier
+from semvec_neo4j.persistence.neo4j_memory_store import Neo4jMemoryStore
 
 
 class MemoryDeduplicator:

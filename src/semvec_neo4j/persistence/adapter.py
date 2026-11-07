@@ -4,18 +4,27 @@ from __future__ import annotations
 
 from neo4j import Driver
 
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_phase_store import Neo4jPhaseStore
-from src.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
-from src.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_phase_store import Neo4jPhaseStore
+from semvec_neo4j.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
+from semvec_neo4j.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.persistence.neo4j_agent_store import Neo4jAgentStore
+from semvec_neo4j.persistence.neo4j_global_observer_store import (
+    Neo4jGlobalObserverStore,
+)
+from semvec_neo4j.persistence.neo4j_anomaly_event_store import (
+    Neo4jAnomalyEventStore,
+)
+from semvec_neo4j.persistence.neo4j_literal_fact_store import Neo4jLiteralFactStore
 
 
 class Neo4jSemvecAdapter:
     """Unified access to all Semvec-backed Neo4j stores.
 
     Single entry point that wires up the session, state, phase, drift
-    event, and memory stores against one driver and database.
+    event, memory, agent, observer, anomaly, and literal-fact stores
+    against one driver and database.
     """
 
     def __init__(self, driver: Driver, database: str = "neo4j"):
@@ -27,6 +36,10 @@ class Neo4jSemvecAdapter:
         self.phases = Neo4jPhaseStore(driver, database)
         self.drift_events = Neo4jDriftEventStore(driver, database)
         self.memories = Neo4jMemoryStore(driver, database)
+        self.agents = Neo4jAgentStore(driver, database)
+        self.observers = Neo4jGlobalObserverStore(driver, database)
+        self.anomaly_events = Neo4jAnomalyEventStore(driver, database)
+        self.literal_facts = Neo4jLiteralFactStore(driver, database)
 
     def apply_schema(self, schema_path: str) -> None:
         """Apply the Semvec graph schema from a ``.cypher`` file."""

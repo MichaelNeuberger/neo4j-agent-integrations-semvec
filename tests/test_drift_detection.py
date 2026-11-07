@@ -5,21 +5,21 @@ Semvec does the computation, Neo4j mirrors the results.
 
 import pytest
 
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
-from src.core.drift_detector import DriftDetector
-from src.persistence.models import (
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.core.drift_detector import DriftDetector
+from semvec_neo4j.persistence.models import (
     AgentSession, DriftPhase, DriftSeverity, PhaseName,
 )
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_phase_store import Neo4jPhaseStore
-from src.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_phase_store import Neo4jPhaseStore
+from semvec_neo4j.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
 
 
 @pytest.fixture(scope="session")
 def semvec_client():
-    return SemvecClient(embedder=HashEmbedder(dimension=32), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=32))
 
 
 @pytest.fixture

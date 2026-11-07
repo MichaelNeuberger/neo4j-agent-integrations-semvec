@@ -6,22 +6,22 @@ Uses the local Semvec runtime for drift detection, Neo4j for topology.
 import numpy as np
 import pytest
 
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
-from src.mcp.semvec_mcp_server import SemvecMCPServer
-from src.persistence.models import (
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.mcp.semvec_mcp_server import SemvecMCPServer
+from semvec_neo4j.persistence.models import (
     Cluster, Region, AggregationStrategy, SemanticState,
 )
-from src.persistence.neo4j_cluster_store import Neo4jClusterStore
-from src.persistence.neo4j_region_store import Neo4jRegionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.network.cluster_manager import ClusterManager
+from semvec_neo4j.persistence.neo4j_cluster_store import Neo4jClusterStore
+from semvec_neo4j.persistence.neo4j_region_store import Neo4jRegionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.network.cluster_manager import ClusterManager
 from tests.conftest import make_random_vector
 
 
 @pytest.fixture(scope="session")
 def semvec_client():
-    return SemvecClient(embedder=HashEmbedder(dimension=32), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=32))
 
 
 @pytest.fixture

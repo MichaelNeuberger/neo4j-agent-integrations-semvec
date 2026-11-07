@@ -14,19 +14,32 @@ from typing import Optional
 
 from neo4j import Driver
 
-from src.core.semvec_client import SemvecClient
-from src.core.drift_detector import DriftDetector
-from src.persistence.models import (
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.core.drift_detector import DriftDetector
+from semvec_neo4j.persistence.models import (
+    Agent,
     AgentSession,
+    AnomalyEvent,
+    AnomalyType,
     DriftSeverity,
+    GlobalObserver,
+    LiteralFact,
     Memory,
     MemoryTier,
 )
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_phase_store import Neo4jPhaseStore
-from src.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
-from src.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_phase_store import Neo4jPhaseStore
+from semvec_neo4j.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
+from semvec_neo4j.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.persistence.neo4j_agent_store import Neo4jAgentStore
+from semvec_neo4j.persistence.neo4j_global_observer_store import (
+    Neo4jGlobalObserverStore,
+)
+from semvec_neo4j.persistence.neo4j_anomaly_event_store import (
+    Neo4jAnomalyEventStore,
+)
+from semvec_neo4j.persistence.neo4j_literal_fact_store import Neo4jLiteralFactStore
 
 
 class SemvecMCPServer:
@@ -44,25 +57,33 @@ class SemvecMCPServer:
     ):
         self._driver = driver
         self._database = database
-        if semvec_client is None:
-            raise TypeError(
-                "semvec_client is required: semvec >= 0.8.7 ties every session "
-                "and network partition to a license subject, so the caller must "
-                "construct SemvecClient(owner_subject=...) explicitly"
-            )
-        self._semvec = semvec_client
+        self._semvec = semvec_client or SemvecClient()
 
         self._sessions = Neo4jSessionStore(driver, database)
         self._states = Neo4jStateStore(driver, database)
         self._phases = Neo4jPhaseStore(driver, database)
         self._drift_events = Neo4jDriftEventStore(driver, database)
         self._memories = Neo4jMemoryStore(driver, database)
+        self._agents = Neo4jAgentStore(driver, database)
+        self._observers = Neo4jGlobalObserverStore(driver, database)
+        self._anomaly_events = Neo4jAnomalyEventStore(driver, database)
+        self._literal_facts = Neo4jLiteralFactStore(driver, database)
 
+        # Persist a DriftEvent node on genuine specialty switches using the
+        # same combined rule the demo displays (drift_score >= threshold AND
+        # top_similarity <= ceiling), not only on Semvec's binary verdict.
+        # Thresholds come from the environment (DRIFT_THRESHOLD / DRIFT_SIM_CEILING)
+        # so the persisted nodes match what the UI reports.
+        import os
+        _drift_threshold = float(os.environ.get("DRIFT_THRESHOLD", "0.35"))
+        _sim_ceiling = float(os.environ.get("DRIFT_SIM_CEILING", "0.45"))
         self._detector = DriftDetector(
             semvec_client=self._semvec,
             state_store=self._states,
             phase_store=self._phases,
             drift_event_store=self._drift_events,
+            drift_score_threshold=_drift_threshold,
+            sim_ceiling=_sim_ceiling,
         )
 
     # === Session management =================================================
@@ -70,9 +91,16 @@ class SemvecMCPServer:
     def create_agent_session(
         self, agent_id: str, cluster_id: Optional[str] = None
     ) -> dict:
-        """Open a fresh agent session and persist it in Neo4j."""
+        """Open a fresh agent session and persist it in Neo4j.
+
+        Also ensures an :class:`Agent` node exists and links it to the new
+        session via ``(Agent)-[:RAN]->(AgentSession)`` so sessions can be
+        grouped per agent for cross-session analytics.
+        """
         session = AgentSession(agent_id=agent_id)
         result = self._sessions.create_session(session)
+        self._agents.ensure_agent(Agent(agent_id=agent_id, name=agent_id))
+        self._agents.link_to_session(agent_id, result.session_id)
         return {
             "session_id": result.session_id,
             "agent_id": result.agent_id,
@@ -217,6 +245,107 @@ class SemvecMCPServer:
 
     def observer_sample(self) -> dict:
         return self._semvec.observer_sample()
+
+    def persist_observer(
+        self,
+        region_ids: Optional[list[str]] = None,
+        sample_interval_seconds: float = 30.0,
+    ) -> dict:
+        """Create the in-process observer and mirror it into Neo4j.
+
+        Persists a ``GlobalObserver`` node and links it to each region it
+        watches via ``(GlobalObserver)-[:OBSERVES]->(Region)``.
+        """
+        info = self._semvec.create_observer(sample_interval_seconds, region_ids)
+        observer_id = info["observer_id"]
+        self._observers.create_observer(GlobalObserver(observer_id=observer_id))
+        for rid in region_ids or []:
+            self._observers.observe_region(observer_id, rid)
+        return info
+
+    def persist_anomalies(self, observer_id: str, limit: int = 20) -> dict:
+        """Mirror the observer's detected anomalies into Neo4j.
+
+        Each anomaly becomes an ``AnomalyEvent`` node linked to the
+        detecting observer via ``(GlobalObserver)-[:DETECTED]->(AnomalyEvent)``.
+        """
+        self._observers.create_observer(GlobalObserver(observer_id=observer_id))
+        stored = 0
+        for a in self._semvec.get_anomalies(limit):
+            event = AnomalyEvent(
+                event_id=a["anomaly_id"],
+                anomaly_type=a.get("anomaly_type", AnomalyType.SYSTEMIC_DRIFT),
+                severity=a.get("severity", 0.0),
+                affected_clusters=a.get("affected_cluster_ids", []),
+                description=a.get("description", ""),
+            )
+            self._anomaly_events.create_anomaly_event(observer_id, event)
+            stored += 1
+        return {"observer_id": observer_id, "stored": stored}
+
+    def get_stored_anomalies(self, observer_id: str, limit: int = 20) -> list[dict]:
+        """Read AnomalyEvent nodes previously persisted for an observer."""
+        return [
+            {
+                "event_id": e.event_id,
+                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                "anomaly_type": e.anomaly_type.value,
+                "severity": e.severity,
+                "affected_clusters": e.affected_clusters,
+                "description": e.description,
+            }
+            for e in self._anomaly_events.get_anomaly_events(observer_id, limit)
+        ]
+
+    # === Literal facts (Neo4j persistence) ==================================
+
+    def extract_and_store_facts(self, session_id: str, text: str) -> dict:
+        """Extract verbatim facts from *text* and mirror them into Neo4j.
+
+        Each fact becomes a ``LiteralFact`` node linked to its session via
+        ``(AgentSession)-[:EXTRACTED]->(LiteralFact)``.
+        """
+        stored = 0
+        for f in self._semvec.extract_facts(text):
+            fact = LiteralFact(
+                session_id=session_id,
+                key=f["raw"],
+                kind=f.get("kind", ""),
+                value=str(f.get("value", "")),
+                unit=f.get("unit", ""),
+                id_type=f.get("id_type", ""),
+            )
+            self._literal_facts.store_fact(session_id, fact)
+            stored += 1
+        return {"session_id": session_id, "stored": stored}
+
+    def get_stored_facts(self, session_id: str, limit: int = 50) -> list[dict]:
+        """Read LiteralFact nodes previously persisted for a session."""
+        return [
+            {
+                "fact_id": f.fact_id,
+                "key": f.key,
+                "kind": f.kind,
+                "value": f.value,
+                "unit": f.unit,
+                "id_type": f.id_type,
+                "importance": f.importance,
+            }
+            for f in self._literal_facts.get_facts(session_id, limit)
+        ]
+
+    # === Agent (cross-session) ==============================================
+
+    def get_agent_sessions(self, agent_id: str) -> list[dict]:
+        """List every session a given agent has run."""
+        return [
+            {
+                "session_id": s.session_id,
+                "status": s.status.value,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in self._agents.get_sessions(agent_id)
+        ]
 
     # === Memory (Neo4j persistence) =========================================
 

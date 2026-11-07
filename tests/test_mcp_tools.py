@@ -1,16 +1,16 @@
 """Tests for MCP tool handlers — using local Semvec runtime."""
 
 import pytest
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
-from src.mcp.semvec_mcp_server import SemvecMCPServer
-from src.persistence.models import PhaseName
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.mcp.semvec_mcp_server import SemvecMCPServer
+from semvec_neo4j.persistence.models import PhaseName
 from tests.conftest import make_random_vector
 
 
 @pytest.fixture(scope="session")
 def semvec_client():
-    return SemvecClient(embedder=HashEmbedder(dimension=32), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=32))
 
 
 @pytest.fixture

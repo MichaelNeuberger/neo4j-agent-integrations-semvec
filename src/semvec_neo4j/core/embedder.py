@@ -68,8 +68,25 @@ class SentenceTransformerEmbedder:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self._model_name, device=self._device)
-            self._dimension = int(self._model.get_sentence_embedding_dimension())
+            try:
+                # Prefer the local cache: this skips HuggingFace's per-start
+                # Hub freshness check, so repeat runs load in well under a
+                # second and work fully offline once the model is cached.
+                self._model = SentenceTransformer(
+                    self._model_name, device=self._device, local_files_only=True
+                )
+            except Exception:
+                # Not cached yet (or cache incomplete) — fetch once from the
+                # Hub; subsequent runs take the fast local path above.
+                self._model = SentenceTransformer(self._model_name, device=self._device)
+            # sentence-transformers renamed this method; prefer the new name
+            # and fall back to the legacy one for older releases.
+            get_dim = getattr(
+                self._model,
+                "get_embedding_dimension",
+                self._model.get_sentence_embedding_dimension,
+            )
+            self._dimension = int(get_dim())
         return self._model
 
     def get_dimension(self) -> int:

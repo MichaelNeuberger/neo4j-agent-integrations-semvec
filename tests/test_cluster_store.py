@@ -2,14 +2,14 @@
 
 import pytest
 
-from src.persistence.models import (
+from semvec_neo4j.persistence.models import (
     AgentSession, Cluster, Region, AggregationStrategy,
     ConsensusEvent, ConsensusOutcome, SemanticState,
 )
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_cluster_store import Neo4jClusterStore
-from src.persistence.neo4j_region_store import Neo4jRegionStore
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_cluster_store import Neo4jClusterStore
+from semvec_neo4j.persistence.neo4j_region_store import Neo4jRegionStore
 from tests.conftest import make_random_vector
 
 
@@ -41,7 +41,7 @@ def two_sessions(session_store, state_store):
         s = AgentSession(session_id=f"cluster-sess-{i}", agent_id=f"agent-{i}")
         session_store.create_session(s)
         state = SemanticState(
-            vector=make_random_vector(384, seed=i + 1), step=0, beta=0.1,
+            vector=make_random_vector(768, seed=i + 1), step=0, beta=0.1,
         )
         state_store.append_state(s.session_id, state, cosine_similarity=1.0)
         sessions.append(s)
@@ -105,13 +105,13 @@ class TestClusterMembership:
         states = cluster_store.get_member_states(cluster.cluster_id)
         assert len(states) == 2
         for state, weight in states:
-            assert len(state.vector) == 384
+            assert len(state.vector) == 768
 
     def test_set_aggregated_state(self, cluster_store):
         cluster = Cluster(name="test-cluster")
         cluster_store.create_cluster(cluster)
 
-        agg_state = SemanticState(vector=make_random_vector(384, seed=99), step=10)
+        agg_state = SemanticState(vector=make_random_vector(768, seed=99), step=10)
         result = cluster_store.set_aggregated_state(cluster.cluster_id, agg_state)
         assert result is True
 
