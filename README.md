@@ -247,6 +247,10 @@ docker compose run --rm test                        # pytest against the contain
 docker compose down                                 # stop; add -v to drop the Neo4j data and model cache
 ```
 
+Neo4j Browser: open http://localhost:7476 and log in as `neo4j` with
+`NEO4J_TEST_PASSWORD`; the connect URL is pre-filled with `localhost:7689`
+(the host's bolt port, which the container advertises).
+
 The first demo or seed run downloads the embedding model (~420 MB) into the
 `hf-cache` volume. If `OPENAI_BASE_URL` points at an LLM on your machine
 (`localhost`), use `host.docker.internal` instead — `localhost` inside a
