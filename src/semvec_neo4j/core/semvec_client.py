@@ -41,6 +41,8 @@ from semvec.api.owner_scope import OwnerScope  # noqa: E402
 from semvec.api.regional_manager import RegionalManager  # noqa: E402
 from semvec.api.session_manager import SessionManager  # noqa: E402
 
+from semvec_neo4j.core.drift_rule import DriftGate, DriftRule  # noqa: E402
+
 _VALID_DRIFT_PHASES = {"stable", "shifting", "drifted"}
 
 #: Owner used when a client is built without ``owner_subject``. Named rather
@@ -152,6 +154,10 @@ class SemvecClient:
         several clients share one Semvec runtime and must not see each
         other's state. ``None`` selects Semvec's anonymous owner, under
         which user partitions (:meth:`switch_user`) are refused.
+    drift_rule:
+        Decides the ``drift`` verdict of :meth:`run` and when a drift is
+        published to the session's region. Without a rule the verdict is
+        Semvec's own ``drift_detected``.
     """
 
     def __init__(
@@ -161,6 +167,7 @@ class SemvecClient:
         model_name: str = "all-mpnet-base-v2",
         *,
         owner_subject: str | None = DEFAULT_OWNER_SUBJECT,
+        drift_rule: DriftRule | None = None,
     ) -> None:
         if embedder is not None:
             self._dimension = int(embedder.get_dimension())
@@ -169,6 +176,7 @@ class SemvecClient:
         self._model_name = model_name
         self._owner_subject = owner_subject
         self._scope = OwnerScope(owner_subject) if owner_subject is not None else None
+        self._drift_gate = DriftGate(drift_rule) if drift_rule is not None else None
 
         self._sessions = _DimensionedSessionManager(
             default_dimension=self._dimension,
@@ -214,6 +222,7 @@ class SemvecClient:
                 dimension=self._dimension, model_name=self._model_name
             )
         elif reset_context:
+            self._forget_drift_state(sid)
             if self._sessions.get_session(sid) is None:
                 sid = self._sessions.create_session(
                     session_id=sid,
@@ -238,7 +247,11 @@ class SemvecClient:
         self._sessions.buffer_message(sid, message)
         context = self._sessions.context_block(sid, message, top_k=5)
 
-        if drift_detected:
+        if self._drift_gate is not None:
+            drift = self._drift_gate.check(sid, float(drift_score), float(top_sim), bool(drift_detected))
+        else:
+            drift = bool(drift_detected)
+        if drift:
             self._publish_drift_event(sid, float(drift_score), drift_phase)
 
         if drift_phase not in _VALID_DRIFT_PHASES:
@@ -251,8 +264,14 @@ class SemvecClient:
             "short_circuit": bool(short_circuit),
             "drift_score": float(drift_score),
             "drift_detected": bool(drift_detected),
+            "drift": drift,
             "drift_phase": drift_phase,
         }
+
+    @property
+    def drift_rule(self) -> DriftRule | None:
+        """The rule behind the ``drift`` verdict of :meth:`run`, or None for Semvec's own."""
+        return self._drift_gate.rule if self._drift_gate is not None else None
 
     def store(self, session_id: str, response: str) -> dict:
         self._sessions.store_qa(session_id, response)
@@ -385,6 +404,7 @@ class SemvecClient:
         if self._sessions.get_session(session_id) is None:
             raise ValueError(f"Session not found: {session_id}")
         ok = self._sessions.delete_session(session_id)
+        self._forget_drift_state(session_id)
         return {"session_id": session_id, "deleted": bool(ok)}
 
     def reset_session(self, session_id: str) -> dict:
@@ -392,7 +412,13 @@ class SemvecClient:
         if self._sessions.get_session(session_id) is None:
             raise ValueError(f"Session not found: {session_id}")
         ok = self._sessions.reset_session(session_id)
+        self._forget_drift_state(session_id)
         return {"session_id": session_id, "reset": bool(ok)}
+
+    def _forget_drift_state(self, session_id: str) -> None:
+        """End the drift cooldown of a session that starts over or is gone."""
+        if self._drift_gate is not None:
+            self._drift_gate.forget(session_id)
 
     # ------------------------------------------------------------------
     # Layer 1d — Metrics, memory recall, consistency probe
@@ -733,6 +759,8 @@ class SemvecClient:
         ok = self._clusters.delete_cluster(cluster_id)
         if not ok:
             raise ValueError(f"Cluster not found: {cluster_id}")
+        # A cluster runs on a backing session with the cluster's id.
+        self._forget_drift_state(cluster_id)
         return {"deleted": True}
 
     def cluster_run(

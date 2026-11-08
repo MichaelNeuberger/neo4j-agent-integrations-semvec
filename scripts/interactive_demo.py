@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+from semvec_neo4j.core.drift_rule import DriftRule
 from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
 from semvec_neo4j.core.semvec_client import SemvecClient
 from semvec_neo4j.mcp.semvec_mcp_server import SemvecMCPServer
@@ -73,7 +74,7 @@ def _build_semvec_client() -> SemvecClient:
     """Single factory so all scenarios share one embedder model load."""
     global _SHARED_SEMVEC
     if _SHARED_SEMVEC is None:
-        _SHARED_SEMVEC = SemvecClient(embedder=_get_st_embedder())
+        _SHARED_SEMVEC = SemvecClient(embedder=_get_st_embedder(), drift_rule=DRIFT_RULE)
     return _SHARED_SEMVEC
 from semvec_neo4j.persistence.adapter import Neo4jSemvecAdapter
 from scripts.demo_helpers import format_observer_sample, sim_bar
@@ -112,24 +113,17 @@ USE_LLM = "--llm" in sys.argv or "--no-llm" not in sys.argv  # LLM on by default
 # crosses ``DRIFT_THRESHOLD`` and the cosine similarity to the accumulated
 # context falls below ``DRIFT_SIM_CEILING``. The combined check filters out
 # in-topic sub-shifts (high drift but still high similarity) and isolates
-# real topic switches. Configure both knobs via .env.
-_drift_env = _require_env("DRIFT_THRESHOLD", "DRIFT_SIM_CEILING")
-DRIFT_THRESHOLD = float(_drift_env["DRIFT_THRESHOLD"])
-DRIFT_SIM_CEILING = float(_drift_env["DRIFT_SIM_CEILING"])
+# real topic switches. ``DRIFT_COOLDOWN_TURNS`` (optional, 0 = off) skips
+# that many turns after a flagged one. Configure the knobs via .env; the
+# rule itself lives in semvec_neo4j.core.drift_rule and is applied by the
+# shared SemvecClient, so display, DriftEvent nodes and regions agree.
+_require_env("DRIFT_THRESHOLD", "DRIFT_SIM_CEILING")
+DRIFT_RULE = DriftRule.from_env()
 
 
 def _is_drift(result: dict) -> bool:
-    """Return True iff the turn looks like a real topic switch.
-
-    Combines Semvec's own ``drift_detected`` flag with a sim/drift gate so
-    sub-topic shifts inside the same domain (high drift but still high
-    similarity to accumulated context) are not flagged as drift events.
-    """
-    if result.get("drift_detected", False):
-        return True
-    drift_score = float(result.get("drift_score", 0.0))
-    similarity = float(result.get("top_similarity", 1.0))
-    return drift_score >= DRIFT_THRESHOLD and similarity <= DRIFT_SIM_CEILING
+    """Return the client's drift verdict for a run / detect_drift result."""
+    return bool(result["drift"])
 
 # ── LLM Client ──────────────────────────────────────────────────────────
 
@@ -737,7 +731,11 @@ def scenario_topic_switch(mcp: SemvecMCPServer, driver):
     print(f"  {GREEN}{'█' * 5}{RESET} sim > 0.4 (on-topic)     "
           f"{YELLOW}{'█' * 5}{RESET} sim 0.2–0.4 (shifting)     "
           f"{RED}{'█' * 5}{RESET} sim < 0.2 (off-topic)")
-    print(f"  {BOLD}DRIFT{RESET} = Semvec drift_detected=True OR (drift_score >= {DRIFT_THRESHOLD} AND sim <= {DRIFT_SIM_CEILING})")
+    cooldown = f", cooldown {DRIFT_RULE.cooldown_turns} turns" if DRIFT_RULE.cooldown_turns else ""
+    print(
+        f"  {BOLD}DRIFT{RESET} = Semvec drift_detected=True OR "
+        f"(drift_score >= {DRIFT_RULE.drift_threshold} AND sim <= {DRIFT_RULE.sim_ceiling}){cooldown}"
+    )
     print(f"  {DIM}phase{RESET} = Semvec drift_phase: stable / shifting / drifted")
     print()
 

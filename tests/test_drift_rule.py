@@ -100,6 +100,14 @@ class TestDriftRuleFromEnv:
         with pytest.raises(ValueError, match="DRIFT_THRESHOLD.*DRIFT_SIM_CEILING"):
             DriftRule.from_env(environ)
 
+    def test_unparsable_value_names_the_variable(self):
+        # Arrange
+        environ = {"DRIFT_THRESHOLD": "0.35", "DRIFT_SIM_CEILING": "0.45", "DRIFT_COOLDOWN_TURNS": "three"}
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="DRIFT_COOLDOWN_TURNS"):
+            DriftRule.from_env(environ)
+
 
 class TestDriftGate:
     def test_without_cooldown_every_matching_turn_is_flagged(self):
@@ -136,6 +144,18 @@ class TestDriftGate:
 
         # Assert
         assert flags == [True, False, False, True]
+
+    def test_forget_ends_the_cooldown_of_a_session(self):
+        # Arrange
+        gate = DriftGate(DriftRule(drift_threshold=0.0, sim_ceiling=1.0, cooldown_turns=3))
+        gate.check("s1", 0.5, 0.1, False)
+
+        # Act
+        gate.forget("s1")
+        flagged = gate.check("s1", 0.5, 0.1, False)
+
+        # Assert
+        assert flagged is True
 
     def test_cooldown_is_tracked_per_session(self):
         # Arrange
@@ -181,6 +201,31 @@ class TestSemvecClientDriftVerdict:
 
         # Assert
         assert flags == [False, True]
+
+    def test_reset_context_ends_the_cooldown(self):
+        # Arrange
+        rule = DriftRule(drift_threshold=0.0, sim_ceiling=1.0, cooldown_turns=3)
+        client = SemvecClient(embedder=HashEmbedder(dimension=16), drift_rule=rule)
+        sid = client.run("turn one")["session_id"]
+
+        # Act
+        result = client.run("fresh start", session_id=sid, reset_context=True)
+
+        # Assert
+        assert result["drift"] is True
+
+    def test_deleted_session_leaves_no_cooldown_state(self):
+        # Arrange
+        rule = DriftRule(drift_threshold=0.0, sim_ceiling=1.0, cooldown_turns=3)
+        client = SemvecClient(embedder=HashEmbedder(dimension=16), drift_rule=rule)
+        sid = client.run("turn one")["session_id"]
+
+        # Act
+        client.delete_session(sid)
+        result = client.run("same id again", session_id=sid, reset_context=True)
+
+        # Assert
+        assert result["drift"] is True
 
     def test_exposes_its_rule(self):
         # Arrange

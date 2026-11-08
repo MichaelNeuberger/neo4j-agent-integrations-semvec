@@ -16,6 +16,7 @@ from neo4j import Driver
 
 from semvec_neo4j.core.semvec_client import SemvecClient
 from semvec_neo4j.core.drift_detector import DriftDetector
+from semvec_neo4j.core.drift_rule import DriftRule
 from semvec_neo4j.persistence.models import (
     Agent,
     AgentSession,
@@ -57,7 +58,9 @@ class SemvecMCPServer:
     ):
         self._driver = driver
         self._database = database
-        self._semvec = semvec_client or SemvecClient()
+        # An injected client brings its own drift rule; a client built here
+        # takes it from DRIFT_* in the environment and fails loudly without.
+        self._semvec = semvec_client or SemvecClient(drift_rule=DriftRule.from_env())
 
         self._sessions = Neo4jSessionStore(driver, database)
         self._states = Neo4jStateStore(driver, database)
@@ -69,22 +72,19 @@ class SemvecMCPServer:
         self._anomaly_events = Neo4jAnomalyEventStore(driver, database)
         self._literal_facts = Neo4jLiteralFactStore(driver, database)
 
-        # Persist a DriftEvent node on genuine specialty switches using the
-        # same combined rule the demo displays (drift_score >= threshold AND
-        # top_similarity <= ceiling), not only on Semvec's binary verdict.
-        # Thresholds come from the environment (DRIFT_THRESHOLD / DRIFT_SIM_CEILING)
-        # so the persisted nodes match what the UI reports.
-        import os
-        _drift_threshold = float(os.environ.get("DRIFT_THRESHOLD", "0.35"))
-        _sim_ceiling = float(os.environ.get("DRIFT_SIM_CEILING", "0.45"))
+        # DriftEvent nodes follow the client's drift verdict, so the persisted
+        # nodes match what the demo reports and what reaches the regions.
         self._detector = DriftDetector(
             semvec_client=self._semvec,
             state_store=self._states,
             phase_store=self._phases,
             drift_event_store=self._drift_events,
-            drift_score_threshold=_drift_threshold,
-            sim_ceiling=_sim_ceiling,
         )
+
+    @property
+    def semvec_client(self) -> SemvecClient:
+        """The in-process Semvec client this server drives."""
+        return self._semvec
 
     # === Session management =================================================
 
@@ -136,6 +136,7 @@ class SemvecMCPServer:
             "context": result["context"],
             "drift_score": result["drift_score"],
             "drift_detected": result["drift_detected"],
+            "drift": result["drift"],
             "drift_phase": result["drift_phase"].value,
             "severity": result["severity"].value,
             "top_similarity": result["top_similarity"],

@@ -126,7 +126,7 @@ Two department clusters across two facilities:
 - **Cardiology** at Memorial General → Maria Rodriguez (AMI)
 - **Emergency** at Riverside Medical → James Morrison (ER visit)
 
-Both clusters are in a Semvec **Region** (`consensus_threshold=0.5`). A **Global Observer** monitors for cross-cluster anomalies. When both departments drift to admin topics simultaneously, the Region detects 2 drift events and the Observer samples the anomaly. On top of that signal, a **ConsensusEngine** runs an explicit qualified-majority vote (supervisor weighted 1.5) on whether to escalate to a network-wide incident.
+Both clusters are in a Semvec **Region** (`consensus_threshold=0.5`). A **Global Observer** monitors for cross-cluster anomalies. When both departments drift to admin topics simultaneously, the drift rule flags the pivot in both clusters and the Region records their drift events (two per department: the cluster run and its member session each publish), while the Observer samples for cross-cluster anomalies. On top of that signal, a **ConsensusEngine** runs an explicit qualified-majority vote (supervisor weighted 1.5) on whether to escalate to a network-wide incident.
 
 **Semvec signals**: `create_region`, `get_region_events`, `create_observer`, `observer_sample`, `get_anomalies`, `create_consensus_engine`, `submit_consensus_proposal`, `vote_on_consensus`, `evaluate_consensus`
 **Neo4j graph**: Region → CONTAINS_CLUSTER → Clusters → MEMBER_OF ← Agents → INVESTIGATED → Patient/Facility
@@ -232,14 +232,22 @@ python scripts/interactive_demo.py --no-llm     # skip LLM calls (shows N/A)
 
 ### Tuning Constants
 
-The interactive demo uses two `.env`-driven knobs and a handful of inline,
+The interactive demo uses three `.env`-driven knobs and a handful of inline,
 scenario-specific thresholds. The latter are commented at their first use,
 but for orientation:
 
 | Knob | Where | Default | What it controls |
 |---|---|---|---|
-| `DRIFT_THRESHOLD` | `.env` | `0.35` | Drift score above which `_is_drift()` flags a turn as a real topic switch. |
-| `DRIFT_SIM_CEILING` | `.env` | `0.45` | Cosine-similarity ceiling for the same gate — drift_score crosses *and* similarity drops. Together these filter in-domain sub-shifts. |
+| `DRIFT_THRESHOLD` | `.env` (required) | `0.35` in `.env.example` | Drift score from which a turn counts as a real topic switch. |
+| `DRIFT_SIM_CEILING` | `.env` (required) | `0.45` in `.env.example` | Cosine-similarity ceiling for the same gate — drift_score crosses *and* similarity drops. Together these filter in-domain sub-shifts. |
+| `DRIFT_COOLDOWN_TURNS` | `.env` (optional) | `0` (off) | Turns skipped after a flagged drift, so the turns settling into the new topic are not flagged again. |
+
+The three knobs form one `DriftRule` (`semvec_neo4j.core.drift_rule`), which
+`SemvecClient(drift_rule=...)` applies per session. Its verdict is the `drift`
+key of every `run()` result; the demo display, the persisted `DriftEvent`
+nodes and the drift events published to a session's region all follow it.
+The thresholds are calibrated per LLM (0.35 / 0.45 were tuned for Qwen3.6 and
+remain the best trade-off for Qwen3.8), so `.env` has no silent fallback.
 | `short_circuit_threshold=0.99` | Sc 3 / Sc 6 | — | "Impossible" threshold — forces deterministic MISS during seeding so context accumulates. |
 | `short_circuit_threshold=0.52` | Sc 3 (Volkov, Tanaka) | — | Calibrated below typical paraphrase similarity on the Park topic (MPNet-768) so cluster HITs fire. |
 | `short_circuit_threshold=0.60` | Sc 5 (cardiology, ER) | — | Mid-band threshold for the consensus scenario — HIT on on-topic, MISS on the deliberate admin pivot. |

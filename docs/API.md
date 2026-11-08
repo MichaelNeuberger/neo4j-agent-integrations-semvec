@@ -31,7 +31,7 @@ model. For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
 
 | Method | Notes |
 |---|---|
-| `run(message, session_id=None, response=None, short_circuit_threshold=0.85, reset_context=False)` | Runs one turn. Returns `session_id, context, top_similarity, short_circuit, drift_score, drift_detected, drift_phase`. Pass `response=` to inline-store the previous LLM answer. |
+| `run(message, session_id=None, response=None, short_circuit_threshold=0.85, reset_context=False)` | Runs one turn. Returns `session_id, context, top_similarity, short_circuit, drift_score, drift_detected, drift, drift_phase`. `drift` is the client's verdict: its `DriftRule` (with cooldown) when one was passed to `SemvecClient(drift_rule=...)`, otherwise `drift_detected`; a `drift` turn is also published to the session's region. Pass `response=` to inline-store the previous LLM answer. |
 | `store(session_id, response)` | Persist the latest LLM answer for the session. |
 
 ## Layer 1b — Session control

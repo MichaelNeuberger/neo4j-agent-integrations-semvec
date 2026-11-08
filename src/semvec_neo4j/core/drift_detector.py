@@ -61,22 +61,16 @@ class DriftDetector:
         state_store: Neo4jStateStore,
         phase_store: Neo4jPhaseStore,
         drift_event_store: Neo4jDriftEventStore,
-        drift_score_threshold: Optional[float] = None,
-        sim_ceiling: float = 0.45,
     ):
         self._semvec = semvec_client
         self._state_store = state_store
         self._phase_store = phase_store
         self._drift_event_store = drift_event_store
 
-        # Optional combined-rule persistence: when drift_score_threshold is
-        # set, a DriftEvent node is also persisted for genuine specialty
-        # switches that clear (drift_score >= threshold AND top_similarity <=
-        # sim_ceiling) even if Semvec's own binary drift_detected (>= 0.5) has
-        # not tripped. Left as None, only Semvec's verdict persists a node —
-        # preserving the original library behaviour.
-        self._drift_score_threshold = drift_score_threshold
-        self._sim_ceiling = sim_ceiling
+        # A DriftEvent node is persisted when the client's ``drift`` verdict
+        # is set: its DriftRule (Semvec's verdict OR the combined
+        # drift_score/similarity rule, with optional cooldown) when the client
+        # has one, otherwise Semvec's own binary drift_detected (>= 0.5).
 
         self._semvec_sessions: dict[str, str] = {}
         self._prev_responses: dict[str, str | None] = {}
@@ -100,6 +94,7 @@ class DriftDetector:
         # Read Semvec signals directly
         drift_score = semvec_result.get("drift_score", 0.0)
         drift_detected = semvec_result.get("drift_detected", False)
+        drift = semvec_result.get("drift", drift_detected)
         drift_phase_str = semvec_result.get("drift_phase", "stable")
         context = semvec_result.get("context", "")
         top_similarity = semvec_result.get("top_similarity", 0.0)
@@ -127,12 +122,7 @@ class DriftDetector:
         self._update_phase(session_id, drift_phase, drift_score, top_similarity)
 
         # === Mirror to Neo4j: Drift Event ===
-        combined_drift = (
-            self._drift_score_threshold is not None
-            and drift_score >= self._drift_score_threshold
-            and top_similarity <= self._sim_ceiling
-        )
-        if drift_detected or combined_drift:
+        if drift:
             event = DriftEvent(
                 drift_score=drift_score,
                 drift_phase=drift_phase,
@@ -150,6 +140,7 @@ class DriftDetector:
             "context": context,
             "drift_score": drift_score,
             "drift_detected": drift_detected,
+            "drift": drift,
             "drift_phase": drift_phase,
             "top_similarity": top_similarity,
             "short_circuit": short_circuit,

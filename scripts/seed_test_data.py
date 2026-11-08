@@ -23,6 +23,7 @@ from neo4j import GraphDatabase
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+from semvec_neo4j.core.drift_rule import DriftRule
 from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
 from semvec_neo4j.core.semvec_client import SemvecClient
 from semvec_neo4j.mcp.semvec_mcp_server import SemvecMCPServer
@@ -140,7 +141,7 @@ def seed_agent_sessions(driver):
     """Create agent sessions using the local Semvec runtime for drift detection."""
     print("\n=== Seeding Agent Sessions (local Semvec runtime) ===")
 
-    semvec = SemvecClient(embedder=SentenceTransformerEmbedder())
+    semvec = SemvecClient(embedder=SentenceTransformerEmbedder(), drift_rule=DriftRule.from_env())
     health = semvec.health()
     print(f"  Semvec runtime: {health.get('status', 'unknown')} "
           f"(v{health.get('version', '?')}, {health.get('active_sessions', '?')} active sessions)")
