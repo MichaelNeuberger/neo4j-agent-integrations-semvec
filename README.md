@@ -230,6 +230,28 @@ python scripts/interactive_demo.py              # LLM enabled (default)
 python scripts/interactive_demo.py --no-llm     # skip LLM calls (shows N/A)
 ```
 
+### Run with Docker
+
+No local Python or Neo4j needed — `docker-compose.yml` starts Neo4j 5.26 and
+runs the seed script, the demo and the tests in one image (CPU-only torch).
+Fill in `.env` as in step 3 above; `NEO4J_TEST_PASSWORD` also sets the
+container's Neo4j password, and `NEO4J_TEST_URI` is pointed at the `neo4j`
+service automatically.
+
+```bash
+docker compose up -d neo4j                          # Neo4j: browser :7476, bolt :7689 on the host
+docker compose run --rm seed                        # seed the healthcare graph (once)
+docker compose run --rm demo                        # interactive demo, LLM enabled
+docker compose run --rm demo python scripts/interactive_demo.py --no-llm
+docker compose run --rm test                        # pytest against the container Neo4j
+docker compose down                                 # stop; add -v to drop the Neo4j data and model cache
+```
+
+The first demo or seed run downloads the embedding model (~420 MB) into the
+`hf-cache` volume. If `OPENAI_BASE_URL` points at an LLM on your machine
+(`localhost`), use `host.docker.internal` instead — `localhost` inside a
+container is the container itself.
+
 ### Tuning Constants
 
 The interactive demo uses three `.env`-driven knobs and a handful of inline,
