@@ -2,13 +2,13 @@
 """Interactive Semvec + Neo4j Demo — shows the interplay between both systems.
 
 Scenarios:
-  1. Live Drift Detection    — Type messages, watch drift score + Neo4j state chain grow
-  2. Topic Switch Detection  — Guided scenario: stay on topic, then switch, observe drift
-  3. Multi-Agent Comparison  — Run parallel agents, compare trajectories in Neo4j
-  4. Memory & Recall         — Store memories, query by similarity, consolidate tiers
-  5. Cross-Session Analytics  — Influence scoring, similarity matrix, drift points
-  6. Session Export/Transfer  — Semvec Layer 5: transfer knowledge between agents
-  7. Neo4j Graph Explorer     — Run Cypher queries directly, see the graph grow
+  1. Live Drift + Token Savings      — Free chat: drift panel + PSS vs full-history token counts
+  2. Drift Detection + Short-Circuit — Guided: stay on topic, switch specialty, observe drift
+  3. Multi-Specialist Ward Round     — Layer 2 clusters: shared memory across three doctors
+  4. Medication Safety Guard         — Layer 1b: anchors, triggers, isolation, memory injection
+  5. Hospital Network Consensus      — Layers 3+4+7: regions, observer, consensus voting
+  6. Shift Handoff                   — Layers 5+6: export/import, delta transfer, consistency probe
+  7. Neo4j Cypher Explorer           — Run Cypher queries directly, see the graph grow
 
 Usage:
     python3 scripts/interactive_demo.py              # real LLM responses (default)
@@ -28,23 +28,55 @@ from pathlib import Path
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Repo root, so `from scripts.demo_helpers import …` resolves when the demo
+# is started as `python scripts/interactive_demo.py`.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from src.core.embedder import SentenceTransformerEmbedder
-from src.core.semvec_client import SemvecClient
-from src.mcp.semvec_mcp_server import SemvecMCPServer
+from semvec_neo4j.core.drift_rule import DriftRule
+from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.mcp.semvec_mcp_server import SemvecMCPServer
 
 _SHARED_SEMVEC: SemvecClient | None = None
+_ST_EMBEDDER: SentenceTransformerEmbedder | None = None
+
+
+def _get_st_embedder() -> SentenceTransformerEmbedder:
+    """Build the one SentenceTransformerEmbedder shared by the in-process
+    SemvecClient and the demo's embed() helper.
+
+    The MPNet model is loaded exactly once per process (not twice), and
+    via the embedder's local-first loader it comes straight from the
+    HuggingFace cache — no per-start Hub round-trip, no re-download.
+    """
+    global _ST_EMBEDDER
+    if _ST_EMBEDDER is None:
+        import warnings, logging, io, contextlib
+        warnings.filterwarnings("ignore")
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+        os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+        for logger_name in ["sentence_transformers", "huggingface_hub", "transformers"]:
+            logging.getLogger(logger_name).setLevel(logging.ERROR)
+        with contextlib.redirect_stderr(io.StringIO()):
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            emb = SentenceTransformerEmbedder(device=device)
+            emb.get_dimension()  # trigger the (cached, offline) model load now
+        _ST_EMBEDDER = emb
+        print(f"  {DIM}Embedder: all-mpnet-base-v2 on {device} (cached){RESET}")
+    return _ST_EMBEDDER
 
 
 def _build_semvec_client() -> SemvecClient:
     """Single factory so all scenarios share one embedder model load."""
     global _SHARED_SEMVEC
     if _SHARED_SEMVEC is None:
-        _SHARED_SEMVEC = SemvecClient(embedder=SentenceTransformerEmbedder(), owner_subject="local-demo")
+        _SHARED_SEMVEC = SemvecClient(embedder=_get_st_embedder(), drift_rule=DRIFT_RULE)
     return _SHARED_SEMVEC
-from src.persistence.adapter import Neo4jSemvecAdapter
+from semvec_neo4j.persistence.adapter import Neo4jSemvecAdapter
 from scripts.demo_helpers import format_observer_sample, sim_bar
 
 
@@ -81,24 +113,17 @@ USE_LLM = "--llm" in sys.argv or "--no-llm" not in sys.argv  # LLM on by default
 # crosses ``DRIFT_THRESHOLD`` and the cosine similarity to the accumulated
 # context falls below ``DRIFT_SIM_CEILING``. The combined check filters out
 # in-topic sub-shifts (high drift but still high similarity) and isolates
-# real topic switches. Configure both knobs via .env.
-_drift_env = _require_env("DRIFT_THRESHOLD", "DRIFT_SIM_CEILING")
-DRIFT_THRESHOLD = float(_drift_env["DRIFT_THRESHOLD"])
-DRIFT_SIM_CEILING = float(_drift_env["DRIFT_SIM_CEILING"])
+# real topic switches. ``DRIFT_COOLDOWN_TURNS`` (optional, 0 = off) skips
+# that many turns after a flagged one. Configure the knobs via .env; the
+# rule itself lives in semvec_neo4j.core.drift_rule and is applied by the
+# shared SemvecClient, so display, DriftEvent nodes and regions agree.
+_require_env("DRIFT_THRESHOLD", "DRIFT_SIM_CEILING")
+DRIFT_RULE = DriftRule.from_env()
 
 
 def _is_drift(result: dict) -> bool:
-    """Return True iff the turn looks like a real topic switch.
-
-    Combines Semvec's own ``drift_detected`` flag with a sim/drift gate so
-    sub-topic shifts inside the same domain (high drift but still high
-    similarity to accumulated context) are not flagged as drift events.
-    """
-    if result.get("drift_detected", False):
-        return True
-    drift_score = float(result.get("drift_score", 0.0))
-    similarity = float(result.get("top_similarity", 1.0))
-    return drift_score >= DRIFT_THRESHOLD and similarity <= DRIFT_SIM_CEILING
+    """Return the client's drift verdict for a run / detect_drift result."""
+    return bool(result["drift"])
 
 # ── LLM Client ──────────────────────────────────────────────────────────
 
@@ -255,36 +280,24 @@ def subheader(text: str):
 def info(label: str, value: str):
     print(f"  {DIM}{label:>22}{RESET}  {value}")
 
-# Real embedding via sentence-transformers (GPU → CPU)
-_embedder = None
-
 def embed(text: str) -> list[float]:
-    """Embed text using all-MiniLM-L6-v2 (GPU if available, else CPU).
-    Raises ImportError if sentence-transformers is not installed."""
-    global _embedder
-    if _embedder is None:
-        import warnings, logging, io, contextlib
-        warnings.filterwarnings("ignore")
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-        os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-        for logger_name in ["sentence_transformers", "huggingface_hub", "transformers"]:
-            logging.getLogger(logger_name).setLevel(logging.ERROR)
-        with contextlib.redirect_stderr(io.StringIO()):
-            from sentence_transformers import SentenceTransformer
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            _embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
-        print(f"  {DIM}Embedder: all-MiniLM-L6-v2 on {device}{RESET}")
-    return _embedder.encode(text).tolist()
+    """Embed text with the shared all-mpnet-base-v2 (768-d) embedder.
+
+    Reuses the single SentenceTransformerEmbedder built by
+    :func:`_get_st_embedder` — the same instance the in-process
+    SemvecClient uses — so the model is loaded once per process and
+    served from the local HuggingFace cache. Anchors, queries, and stored
+    memories therefore all share one 768-dim space matching the Neo4j
+    vector indexes. Raises ImportError if sentence-transformers is missing."""
+    return _get_st_embedder().get_embedding(text).tolist()
 
 
 # ── Reset: clean Semvec artifacts, keep healthcare template ────────────────
 
 _SEMVEC_LABELS = [
-    "AgentSession", "SemanticState", "DriftEvent", "Phase",
-    "Memory", "MemoryCluster", "Cluster", "Region",
-    "GlobalObserver", "ConsensusEvent", "AnomalyEvent",
+    "AgentSession", "Agent", "SemanticState", "DriftEvent", "Phase",
+    "Memory", "Cluster", "Region",
+    "GlobalObserver", "ConsensusEvent", "AnomalyEvent", "LiteralFact",
 ]
 # Healthcare labels that must NEVER be deleted
 _HEALTHCARE_LABELS = {
@@ -718,7 +731,11 @@ def scenario_topic_switch(mcp: SemvecMCPServer, driver):
     print(f"  {GREEN}{'█' * 5}{RESET} sim > 0.4 (on-topic)     "
           f"{YELLOW}{'█' * 5}{RESET} sim 0.2–0.4 (shifting)     "
           f"{RED}{'█' * 5}{RESET} sim < 0.2 (off-topic)")
-    print(f"  {BOLD}DRIFT{RESET} = Semvec drift_detected=True OR (drift_score >= {DRIFT_THRESHOLD} AND sim <= {DRIFT_SIM_CEILING})")
+    cooldown = f", cooldown {DRIFT_RULE.cooldown_turns} turns" if DRIFT_RULE.cooldown_turns else ""
+    print(
+        f"  {BOLD}DRIFT{RESET} = Semvec drift_detected=True OR "
+        f"(drift_score >= {DRIFT_RULE.drift_threshold} AND sim <= {DRIFT_RULE.sim_ceiling}){cooldown}"
+    )
     print(f"  {DIM}phase{RESET} = Semvec drift_phase: stable / shifting / drifted")
     print()
 
@@ -1242,7 +1259,7 @@ def scenario_medication_safety(mcp: SemvecMCPServer, driver):
     oncology_embedding = embed(anchor_text)
     try:
         result = semvec.add_anchor(sid, oncology_embedding)
-        info("Anchor set", "oncology domain (384-dim embedding)")
+        info("Anchor set", "oncology domain (768-dim embedding)")
     except Exception as e:
         print(f"  {YELLOW}anchor endpoint: {e}{RESET}")
 
@@ -1349,6 +1366,9 @@ def scenario_medication_safety(mcp: SemvecMCPServer, driver):
             facts_extracted = semvec.store_facts_as_entities(sid, msg)
             facts_this_turn = facts_extracted.get("stored", 0)
             facts_total += facts_this_turn
+            # Also mirror each verbatim fact into Neo4j as a (:LiteralFact)
+            # node linked to the session via (:AgentSession)-[:EXTRACTED]->.
+            mcp.extract_and_store_facts(neo4j_sid, msg)
         except Exception:
             pass
 
@@ -1580,12 +1600,17 @@ def scenario_hospital_consensus(mcp: SemvecMCPServer, driver):
     # at strategic moments (Steps 5b/5d), so this value only matters if
     # you let the demo idle — which we don't. Set well above demo runtime.
     subheader("Step 4: Create Global Observer")
+    observer_id = None
     try:
-        observer = semvec.create_observer(
-            sample_interval_seconds=30.0,
+        # persist_observer creates the in-process observer AND mirrors it into
+        # Neo4j as a (:GlobalObserver) node linked to the region it watches
+        # via (:GlobalObserver)-[:OBSERVES]->(:Region).
+        observer = mcp.persist_observer(
             region_ids=[rid] if rid else [],
+            sample_interval_seconds=30.0,
         )
-        info("Observer", "created and registered to hospital-network region")
+        observer_id = observer["observer_id"]
+        info("Observer", "created, persisted, and registered to hospital-network region")
     except Exception as e:
         print(f"  {YELLOW}Observer: {e}{RESET}")
 
@@ -1789,6 +1814,16 @@ def scenario_hospital_consensus(mcp: SemvecMCPServer, driver):
             print(f"    {DIM}(Observer detects anomalies when multiple clusters drift simultaneously){RESET}")
     except Exception as e:
         print(f"  {YELLOW}Observer anomalies: {e}{RESET}")
+
+    # Mirror the detected anomalies into Neo4j as (:AnomalyEvent) nodes linked
+    # to the detecting observer via (:GlobalObserver)-[:DETECTED]->(:AnomalyEvent).
+    if observer_id:
+        try:
+            persisted = mcp.persist_anomalies(observer_id, limit=20)
+            if persisted["stored"]:
+                info("Persisted to Neo4j", f"{BOLD}{persisted['stored']}{RESET} AnomalyEvent node(s) under the observer")
+        except Exception as e:
+            print(f"  {YELLOW}Persist anomalies: {e}{RESET}")
 
     # Observer summary
     print()
@@ -2473,6 +2508,47 @@ WHERE type(r1) IN ['DIAGNOSED_WITH','TREATED_BY','PRESCRIBED',
                     'HAD_ENCOUNTER','AFFILIATED_WITH','CONTRAINDICATED_WITH']
 OPTIONAL MATCH (s)-[:CURRENT_STATE]->(st:SemanticState)-[tr:TRIGGERED]->(d:DriftEvent)
 RETURN s, inv, entity, r1, connected, st, tr, d"""),
+
+        # ════════════════════════════════════════════════════════════════
+        #  PHASE-3 FEATURES  (Agent roster, observer anomalies, literal facts)
+        # ════════════════════════════════════════════════════════════════
+
+        ("TABLE  Agent roster — every agent and how many sessions it has run",
+         """MATCH (a:Agent)-[:RAN]->(s:AgentSession)
+RETURN a.agent_id AS agent, a.name AS name, count(s) AS sessions,
+       collect(s.status)[0..5] AS recent_statuses
+ORDER BY sessions DESC, agent"""),
+
+        ("TABLE  Observer anomalies (Sc.5) — network anomalies detected + persisted",
+         """MATCH (go:GlobalObserver)-[:DETECTED]->(a:AnomalyEvent)
+RETURN a.anomaly_type AS type,
+       round(a.severity * 100) / 100 AS severity,
+       size(a.affected_clusters) AS clusters_affected,
+       a.description AS description,
+       a.timestamp AS detected_at
+ORDER BY a.timestamp DESC"""),
+
+        ("TABLE  Literal facts (Sc.4) — verbatim facts extracted per session",
+         """MATCH (s:AgentSession)-[:EXTRACTED]->(f:LiteralFact)
+RETURN s.agent_id AS agent, f.kind AS kind, f.key AS verbatim,
+       f.value AS value, f.unit AS unit, f.id_type AS id_type
+ORDER BY agent, kind, verbatim"""),
+
+        ("GRAPH  Observer network (Sc.5) — GlobalObserver → Region + DETECTED anomalies",
+         """MATCH (go:GlobalObserver)
+OPTIONAL MATCH (go)-[obs:OBSERVES]->(r:Region)
+OPTIONAL MATCH (r)-[cc:CONTAINS_CLUSTER]->(c:Cluster)
+OPTIONAL MATCH (go)-[det:DETECTED]->(a:AnomalyEvent)
+RETURN go, obs, r, cc, c, det, a"""),
+
+        ("GRAPH  Agent roster (cross-session) — Agent → RAN → its AgentSessions",
+         """MATCH (a:Agent)-[ran:RAN]->(s:AgentSession)
+OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(p:Phase)
+RETURN a, ran, s, p"""),
+
+        ("GRAPH  Literal facts (Sc.4) — sessions → EXTRACTED → verbatim facts",
+         """MATCH (s:AgentSession)-[ex:EXTRACTED]->(f:LiteralFact)
+RETURN s, ex, f"""),
 
         ("GRAPH  Everything — complete graph (limit 300)",
          """MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 300"""),

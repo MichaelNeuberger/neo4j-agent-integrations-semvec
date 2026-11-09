@@ -10,7 +10,7 @@ import math
 import numpy as np
 import pytest
 
-from src.core.embedder import HashEmbedder, SentenceTransformerEmbedder
+from semvec_neo4j.core.embedder import HashEmbedder, SentenceTransformerEmbedder
 
 
 @pytest.fixture(autouse=True)

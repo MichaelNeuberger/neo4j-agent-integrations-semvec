@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.persistence.models import AgentSession, Phase, PhaseName
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_phase_store import Neo4jPhaseStore
+from semvec_neo4j.persistence.models import AgentSession, Phase, PhaseName
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_phase_store import Neo4jPhaseStore
 
 
 @pytest.fixture

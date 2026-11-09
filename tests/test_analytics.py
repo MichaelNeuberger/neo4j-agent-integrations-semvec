@@ -2,23 +2,23 @@
 
 import pytest
 
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
-from src.analytics.influence import InfluenceAnalyzer
-from src.analytics.trajectories import TrajectoryAnalyzer
-from src.analytics.similarity import SimilarityAnalyzer
-from src.analytics.deduplication import MemoryDeduplicator
-from src.mcp.semvec_mcp_server import SemvecMCPServer
-from src.persistence.models import Cluster, AggregationStrategy, Memory, MemoryTier
-from src.persistence.neo4j_cluster_store import Neo4jClusterStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.analytics.influence import InfluenceAnalyzer
+from semvec_neo4j.analytics.trajectories import TrajectoryAnalyzer
+from semvec_neo4j.analytics.similarity import SimilarityAnalyzer
+from semvec_neo4j.analytics.deduplication import MemoryDeduplicator
+from semvec_neo4j.mcp.semvec_mcp_server import SemvecMCPServer
+from semvec_neo4j.persistence.models import Cluster, AggregationStrategy, Memory, MemoryTier
+from semvec_neo4j.persistence.neo4j_cluster_store import Neo4jClusterStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_memory_store import Neo4jMemoryStore
 from tests.conftest import make_random_vector
 
 
 @pytest.fixture(scope="session")
 def semvec_client():
-    return SemvecClient(embedder=HashEmbedder(dimension=32), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=32))
 
 
 @pytest.fixture
@@ -178,9 +178,9 @@ class TestMemoryDeduplicator:
         session = mcp.create_agent_session(agent_id="dedup-agent")
         sid = session["session_id"]
 
-        vec1 = make_random_vector(384, seed=42)
+        vec1 = make_random_vector(768, seed=42)
         vec2 = [v + 0.001 for v in vec1]
-        vec3 = make_random_vector(384, seed=999)
+        vec3 = make_random_vector(768, seed=999)
 
         memory_store.store_memory(sid, Memory(
             tier=MemoryTier.SHORT, content_vector=vec1,
@@ -202,7 +202,7 @@ class TestMemoryDeduplicator:
         session = mcp.create_agent_session(agent_id="merge-agent")
         sid = session["session_id"]
 
-        vec = make_random_vector(384, seed=42)
+        vec = make_random_vector(768, seed=42)
         memory_store.store_memory(sid, Memory(
             tier=MemoryTier.SHORT, content_vector=vec,
             importance=0.9, text_summary="Important fact A",

@@ -3,8 +3,8 @@
 import pytest
 from datetime import datetime
 
-from src.persistence.models import AgentSession, SessionStatus
-from src.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.models import AgentSession, SessionStatus
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
 
 
 @pytest.fixture

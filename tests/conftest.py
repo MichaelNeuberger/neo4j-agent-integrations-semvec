@@ -79,8 +79,8 @@ def clean_test_data(neo4j_driver, neo4j_schema):
     """Wipe Semvec-related Neo4j nodes before each test."""
     labels = [
         "AgentSession", "Agent", "SemanticState", "DriftEvent",
-        "Phase", "Memory", "MemoryCluster", "Cluster", "Region",
-        "GlobalObserver", "ConsensusEvent", "AnomalyEvent",
+        "Phase", "Memory", "Cluster", "Region",
+        "GlobalObserver", "ConsensusEvent", "AnomalyEvent", "LiteralFact",
     ]
     with neo4j_driver.session(database=NEO4J_DATABASE) as session:
         for label in labels:
@@ -95,12 +95,12 @@ def db_session(neo4j_driver):
         yield session
 
 
-def make_vector(dim: int = 384, value: float = 0.0) -> list[float]:
+def make_vector(dim: int = 768, value: float = 0.0) -> list[float]:
     """Create a test vector of given dimension."""
     return [value] * dim
 
 
-def make_random_vector(dim: int = 384, seed: int = 42) -> list[float]:
+def make_random_vector(dim: int = 768, seed: int = 42) -> list[float]:
     """Create a reproducible random-ish test vector with nonzero L2 norm."""
     import math
     # Use seed+1 offset to avoid zero vector when seed=0

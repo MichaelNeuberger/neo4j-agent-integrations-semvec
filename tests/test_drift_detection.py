@@ -5,21 +5,22 @@ Semvec does the computation, Neo4j mirrors the results.
 
 import pytest
 
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
-from src.core.drift_detector import DriftDetector
-from src.persistence.models import (
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
+from semvec_neo4j.core.drift_detector import DriftDetector
+from semvec_neo4j.core.drift_rule import DriftRule
+from semvec_neo4j.persistence.models import (
     AgentSession, DriftPhase, DriftSeverity, PhaseName,
 )
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
-from src.persistence.neo4j_phase_store import Neo4jPhaseStore
-from src.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.neo4j_phase_store import Neo4jPhaseStore
+from semvec_neo4j.persistence.neo4j_drift_event_store import Neo4jDriftEventStore
 
 
 @pytest.fixture(scope="session")
 def semvec_client():
-    return SemvecClient(embedder=HashEmbedder(dimension=32), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=32))
 
 
 @pytest.fixture
@@ -156,6 +157,48 @@ class TestNeo4jMirroring:
         events = drift_event_store.get_drift_events(sid)
         # Check that at least the significant drifts were captured
         assert isinstance(events, list)
+
+
+class TestDriftRulePersistence:
+    """A DriftEvent node is written exactly when the client's drift rule flags a turn."""
+
+    def _detector(self, rule, state_store, phase_store, drift_event_store):
+        return DriftDetector(
+            semvec_client=SemvecClient(embedder=HashEmbedder(dimension=32), drift_rule=rule),
+            state_store=state_store,
+            phase_store=phase_store,
+            drift_event_store=drift_event_store,
+        )
+
+    def test_drift_event_persisted_when_rule_flags(
+        self, active_session, state_store, phase_store, drift_event_store
+    ):
+        # Arrange
+        detector = self._detector(
+            DriftRule(drift_threshold=0.0, sim_ceiling=1.0), state_store, phase_store, drift_event_store
+        )
+
+        # Act
+        result = detector.process_input(active_session.session_id, "Heart failure management")
+
+        # Assert
+        assert result["drift"] is True
+        assert len(drift_event_store.get_drift_events(active_session.session_id)) == 1
+
+    def test_no_drift_event_when_rule_does_not_flag(
+        self, active_session, state_store, phase_store, drift_event_store
+    ):
+        # Arrange
+        detector = self._detector(
+            DriftRule(drift_threshold=1.01, sim_ceiling=0.0), state_store, phase_store, drift_event_store
+        )
+
+        # Act
+        result = detector.process_input(active_session.session_id, "Heart failure management")
+
+        # Assert
+        assert result["drift"] is False
+        assert drift_event_store.get_drift_events(active_session.session_id) == []
 
 
 class TestStoreResponse:

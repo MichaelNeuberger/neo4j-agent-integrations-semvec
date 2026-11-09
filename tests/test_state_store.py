@@ -3,9 +3,9 @@
 import math
 import pytest
 
-from src.persistence.models import AgentSession, SemanticState
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_state_store import Neo4jStateStore
+from semvec_neo4j.persistence.models import AgentSession, SemanticState
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_state_store import Neo4jStateStore
 from tests.conftest import make_random_vector
 
 
@@ -29,7 +29,7 @@ def active_session(session_store):
 
 class TestStateStoreAppend:
     def test_append_first_state(self, store, active_session):
-        vec = make_random_vector(384, seed=1)
+        vec = make_random_vector(768, seed=1)
         state = SemanticState(vector=vec, step=0, beta=0.1)
         result = store.append_state(active_session.session_id, state, cosine_similarity=1.0)
         assert result.state_id == state.state_id
@@ -38,9 +38,9 @@ class TestStateStoreAppend:
 
     def test_append_creates_chain(self, store, active_session):
         sid = active_session.session_id
-        s1 = SemanticState(vector=make_random_vector(384, seed=1), step=0, beta=0.1)
-        s2 = SemanticState(vector=make_random_vector(384, seed=2), step=1, beta=0.15)
-        s3 = SemanticState(vector=make_random_vector(384, seed=3), step=2, beta=0.2)
+        s1 = SemanticState(vector=make_random_vector(768, seed=1), step=0, beta=0.1)
+        s2 = SemanticState(vector=make_random_vector(768, seed=2), step=1, beta=0.15)
+        s3 = SemanticState(vector=make_random_vector(768, seed=3), step=2, beta=0.2)
 
         store.append_state(sid, s1, cosine_similarity=1.0)
         store.append_state(sid, s2, cosine_similarity=0.85)
@@ -52,12 +52,12 @@ class TestStateStoreAppend:
         assert current.step == 2
 
     def test_append_preserves_vector(self, store, active_session):
-        vec = make_random_vector(384, seed=42)
+        vec = make_random_vector(768, seed=42)
         state = SemanticState(vector=vec, step=0, beta=0.1)
         store.append_state(active_session.session_id, state, cosine_similarity=1.0)
 
         current = store.get_current_state(active_session.session_id)
-        assert len(current.vector) == 384
+        assert len(current.vector) == 768
         # Check vector values are close (float precision)
         for i in range(10):
             assert abs(current.vector[i] - vec[i]) < 1e-5
@@ -71,7 +71,7 @@ class TestStateStoreGetCurrent:
     def test_get_current_state_after_multiple_appends(self, store, active_session):
         sid = active_session.session_id
         for i in range(5):
-            s = SemanticState(vector=make_random_vector(384, seed=i), step=i, beta=0.1 * i)
+            s = SemanticState(vector=make_random_vector(768, seed=i), step=i, beta=0.1 * i)
             store.append_state(sid, s, cosine_similarity=0.9)
 
         current = store.get_current_state(sid)
@@ -87,7 +87,7 @@ class TestStateStoreHistory:
         sid = active_session.session_id
         sims = [1.0, 0.9, 0.8, 0.7, 0.6]
         for i in range(5):
-            s = SemanticState(vector=make_random_vector(384, seed=i), step=i, beta=0.1)
+            s = SemanticState(vector=make_random_vector(768, seed=i), step=i, beta=0.1)
             store.append_state(sid, s, cosine_similarity=sims[i])
 
         history = store.get_state_history(sid, limit=5)
@@ -99,7 +99,7 @@ class TestStateStoreHistory:
     def test_get_history_with_limit(self, store, active_session):
         sid = active_session.session_id
         for i in range(10):
-            s = SemanticState(vector=make_random_vector(384, seed=i), step=i, beta=0.1)
+            s = SemanticState(vector=make_random_vector(768, seed=i), step=i, beta=0.1)
             store.append_state(sid, s, cosine_similarity=0.9)
 
         history = store.get_state_history(sid, limit=3)
@@ -108,8 +108,8 @@ class TestStateStoreHistory:
 
     def test_history_includes_cosine_similarity(self, store, active_session):
         sid = active_session.session_id
-        s1 = SemanticState(vector=make_random_vector(384, seed=1), step=0, beta=0.1)
-        s2 = SemanticState(vector=make_random_vector(384, seed=2), step=1, beta=0.2)
+        s1 = SemanticState(vector=make_random_vector(768, seed=1), step=0, beta=0.1)
+        s2 = SemanticState(vector=make_random_vector(768, seed=2), step=1, beta=0.2)
 
         store.append_state(sid, s1, cosine_similarity=1.0)
         store.append_state(sid, s2, cosine_similarity=0.75)
@@ -128,6 +128,6 @@ class TestStateStoreCount:
     def test_count_after_appends(self, store, active_session):
         sid = active_session.session_id
         for i in range(7):
-            s = SemanticState(vector=make_random_vector(384, seed=i), step=i, beta=0.1)
+            s = SemanticState(vector=make_random_vector(768, seed=i), step=i, beta=0.1)
             store.append_state(sid, s, cosine_similarity=0.9)
         assert store.get_state_count(sid) == 7

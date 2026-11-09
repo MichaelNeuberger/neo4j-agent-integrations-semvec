@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.core.embedder import HashEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import HashEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +23,7 @@ def clean_test_data():
 
 @pytest.fixture
 def client():
-    return SemvecClient(embedder=HashEmbedder(dimension=16), owner_subject="test-suite")
+    return SemvecClient(embedder=HashEmbedder(dimension=16))
 
 
 # ---------------------------------------------------------------------------

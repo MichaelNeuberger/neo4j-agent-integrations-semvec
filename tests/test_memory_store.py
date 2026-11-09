@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.persistence.models import AgentSession, Memory, MemoryTier
-from src.persistence.neo4j_session_store import Neo4jSessionStore
-from src.persistence.neo4j_memory_store import Neo4jMemoryStore
+from semvec_neo4j.persistence.models import AgentSession, Memory, MemoryTier
+from semvec_neo4j.persistence.neo4j_session_store import Neo4jSessionStore
+from semvec_neo4j.persistence.neo4j_memory_store import Neo4jMemoryStore
 from tests.conftest import make_random_vector
 
 

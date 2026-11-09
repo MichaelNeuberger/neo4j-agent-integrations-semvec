@@ -1,8 +1,14 @@
 # Neo4j Browser Demo Queries
 
-Open http://localhost:7474 — Login: `neo4j` / `testpassword`
+Open Neo4j Browser and log in as `neo4j` with `NEO4J_TEST_PASSWORD` from `.env`
+(Docker setup: http://localhost:7476; local Neo4j: the HTTP port of your installation).
 
-Copy each query into the top bar and hit **Play** (or Ctrl+Enter).
+With the Docker setup these queries open automatically after login as the guide
+"Semvec × Neo4j demo queries" (one query per step, with buttons to run or edit it).
+The guide is rendered from this file by `scripts/browser_guide.py`, so edits here show up
+on the next login. With a local Neo4j, start `python scripts/browser_guide.py` and enter
+`:play http://localhost:7477/semvec-demo.html` in Neo4j Browser. Or copy each query into the
+top bar and hit **Play** (or Ctrl+Enter).
 Switch between **Graph** / **Table** view with the icons on the left of the result.
 
 These queries match **Scenario 7 (Neo4j Cypher Explorer)** in `interactive_demo.py`.

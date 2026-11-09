@@ -8,28 +8,16 @@ For the full Semvec runtime documentation see
 <https://semvec-docs.pages.dev/>.
 
 ```python
-from src.core.embedder import SentenceTransformerEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
-semvec = SemvecClient(
-    embedder=SentenceTransformerEmbedder(),
-    owner_subject="my-license-subject",
-)
+semvec = SemvecClient(embedder=SentenceTransformerEmbedder())
 ```
 
 When `embedder` is omitted, Semvec lazily loads
-`sentence-transformers` with the default 384-dimensional MiniLM model.
-For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
-`src.core.embedder`.
-
-`owner_subject` is required since semvec 0.8.7: it is the license
-subject that owns every session, observer, and network partition the
-client creates, and session ownership is checked against it on
-observer and network operations. It is keyword-only and has no
-default — a forgotten argument fails with a `TypeError` instead of
-silently creating a permissive anonymous client. Pass `None`
-explicitly to opt into anonymous/unowned mode (user partitions such
-as `switch_user` refuse `None` at call time).
+`sentence-transformers` with the default 768-dimensional `all-mpnet-base-v2`
+model. For tests and offline runs, swap in `HashEmbedder(dimension=…)` from
+`semvec_neo4j.core.embedder`.
 
 ---
 
@@ -43,7 +31,7 @@ as `switch_user` refuse `None` at call time).
 
 | Method | Notes |
 |---|---|
-| `run(message, session_id=None, response=None, short_circuit_threshold=0.85, reset_context=False)` | Runs one turn. Returns `session_id, context, top_similarity, short_circuit, drift_score, drift_detected, drift_phase`. Pass `response=` to inline-store the previous LLM answer. |
+| `run(message, session_id=None, response=None, short_circuit_threshold=0.85, reset_context=False)` | Runs one turn. Returns `session_id, context, top_similarity, short_circuit, drift_score, drift_detected, drift, drift_phase`. `drift` is the client's verdict: its `DriftRule` (with cooldown) when one was passed to `SemvecClient(drift_rule=...)`, otherwise `drift_detected`; a `drift` turn is also published to the session's region. Pass `response=` to inline-store the previous LLM answer. |
 | `store(session_id, response)` | Persist the latest LLM answer for the session. |
 
 ## Layer 1b — Session control
@@ -110,13 +98,10 @@ as `switch_user` refuse `None` at call time).
 ## End-to-end example
 
 ```python
-from src.core.embedder import SentenceTransformerEmbedder
-from src.core.semvec_client import SemvecClient
+from semvec_neo4j.core.embedder import SentenceTransformerEmbedder
+from semvec_neo4j.core.semvec_client import SemvecClient
 
-semvec = SemvecClient(
-    embedder=SentenceTransformerEmbedder(),
-    owner_subject="my-license-subject",
-)
+semvec = SemvecClient(embedder=SentenceTransformerEmbedder())
 
 turn1 = semvec.run("Patient with chest pain, ECG shows ST elevation")
 sid = turn1["session_id"]
