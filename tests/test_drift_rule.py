@@ -12,6 +12,12 @@ PERMISSIVE = DriftRule(drift_threshold=0.0, sim_ceiling=1.0)
 NEVER = DriftRule(drift_threshold=1.01, sim_ceiling=0.0)
 
 
+@pytest.fixture(autouse=True)
+def clean_test_data():
+    """Override the conftest autouse fixture — these tests need no Neo4j."""
+    yield
+
+
 class TestDriftRuleMatches:
     def test_flags_when_score_reaches_threshold_and_similarity_is_below_ceiling(self):
         # Arrange
