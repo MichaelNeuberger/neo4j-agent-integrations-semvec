@@ -156,10 +156,9 @@ RETURN r, rc, c, m, s, inv, e
 ### 14. Drift cascade — states that triggered drift events
 
 ```cypher
-MATCH (st:SemanticState)-[t:TRIGGERED]->(d:DriftEvent)
-OPTIONAL MATCH (s:AgentSession)-[:CURRENT_STATE]->(current:SemanticState)
-OPTIONAL MATCH path = (current)-[:STATE_HISTORY*0..20]->(st)
-RETURN s, st, t, d
+MATCH path = (s:AgentSession)-[:CURRENT_STATE]->(:SemanticState)
+             -[:STATE_HISTORY*0..]->(:SemanticState)-[:TRIGGERED]->(d:DriftEvent)
+RETURN path
 ```
 
 ### 15. Agent x Patient x Drift — Semvec investigation + clinical graph + drift events
@@ -170,11 +169,12 @@ MATCH (pat)-[dx:DIAGNOSED_WITH]->(diag:Diagnosis)
 OPTIONAL MATCH (pat)-[tb:TREATED_BY]->(prov:Provider)
 OPTIONAL MATCH (treat:Treatment)-[treats:TREATS]->(diag)
 OPTIONAL MATCH (treat)-[uses:USES]->(med:Medication)
-OPTIONAL MATCH (s)-[:CURRENT_STATE]->(st:SemanticState)-[tr:TRIGGERED]->(drift:DriftEvent)
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(phase:Phase)
-OPTIONAL MATCH (s)-[:MEMBER_OF]->(cluster:Cluster)
+OPTIONAL MATCH drift = (s)-[:CURRENT_STATE]->(:SemanticState)
+                       -[:STATE_HISTORY*0..]->(:SemanticState)-[:TRIGGERED]->(:DriftEvent)
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(phase:Phase)
+OPTIONAL MATCH (s)-[mo:MEMBER_OF]->(cluster:Cluster)
 RETURN s, inv, pat, dx, diag, tb, prov, treats, treat, uses, med,
-       st, tr, drift, phase, cluster
+       drift, cp, phase, mo, cluster
 ```
 
 ### 16. Clinical network — patients -> diagnoses <- treatments -> medications
@@ -193,8 +193,8 @@ RETURN pat, dx, diag, tr, treat, u, med, tb, prov
 MATCH (m1:Medication)-[ci:CONTRAINDICATED_WITH]->(m2:Medication)
 OPTIONAL MATCH (prov:Provider)-[rx:PRESCRIBED]->(m1)
 OPTIONAL MATCH (s:AgentSession)-[inv:INVESTIGATED]->(m1)
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(phase:Phase)
-RETURN m1, ci, m2, prov, rx, s, inv, phase
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(phase:Phase)
+RETURN m1, ci, m2, prov, rx, s, inv, cp, phase
 ```
 
 ### 18. Provider referral x Semvec — referrals + which agents investigated each provider
@@ -204,8 +204,8 @@ MATCH (p1:Provider)-[ref:REFERRED_TO]->(p2:Provider)
 OPTIONAL MATCH (p1)-[a1:AFFILIATED_WITH]->(f1:Facility)
 OPTIONAL MATCH (p2)-[a2:AFFILIATED_WITH]->(f2:Facility)
 OPTIONAL MATCH (s:AgentSession)-[inv:INVESTIGATED]->(p1)
-OPTIONAL MATCH (s)-[:MEMBER_OF]->(cluster:Cluster)
-RETURN p1, ref, p2, a1, f1, a2, f2, s, inv, cluster
+OPTIONAL MATCH (s)-[mo:MEMBER_OF]->(cluster:Cluster)
+RETURN p1, ref, p2, a1, f1, a2, f2, s, inv, mo, cluster
 ```
 
 ### 19. Patient journey x Semvec — encounters + which agents tracked each step

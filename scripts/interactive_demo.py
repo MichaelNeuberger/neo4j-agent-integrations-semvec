@@ -2411,9 +2411,10 @@ RETURN s, m, c, inv, e, r1, connected"""),
          """MATCH (s:AgentSession {agent_id: 'drift-shortcircuit-demo'})-[inv:INVESTIGATED]->(e)
 OPTIONAL MATCH (e)-[r1]->(connected)
 WHERE type(r1) IN ['DIAGNOSED_WITH','TREATED_BY','PRESCRIBED','HAD_ENCOUNTER','CONTRAINDICATED_WITH']
-OPTIONAL MATCH (s)-[:CURRENT_STATE]->(st:SemanticState)-[tr:TRIGGERED]->(d:DriftEvent)
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(ph:Phase)
-RETURN s, inv, e, r1, connected, st, tr, d, ph"""),
+OPTIONAL MATCH drift = (s)-[:CURRENT_STATE]->(:SemanticState)
+                       -[:STATE_HISTORY*0..]->(:SemanticState)-[:TRIGGERED]->(:DriftEvent)
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(ph:Phase)
+RETURN s, inv, e, r1, connected, drift, cp, ph"""),
 
         ("GRAPH  Drift+Short-Circuit (Sc.2) — Phase 4 paraphrase HITs back to Phase 1 entities",
          """MATCH (s:AgentSession {agent_id: 'drift-shortcircuit-demo'})-[inv:INVESTIGATED]->(e)
@@ -2424,16 +2425,16 @@ RETURN s, inv, e"""),
          """MATCH (s:AgentSession {agent_id: 'oncology-safety-guard'})-[inv:INVESTIGATED]->(e)
 OPTIONAL MATCH (e)-[ci:CONTRAINDICATED_WITH]->(other:Medication)
 OPTIONAL MATCH (treat:Treatment)-[u:USES]->(e)
-OPTIONAL MATCH (pat:Patient)-[hasT:HAS_TREATMENT]->(treat)
-RETURN s, inv, e, ci, other, treat, u, pat, hasT"""),
+OPTIONAL MATCH care = (pat:Patient)-[:DIAGNOSED_WITH]->(:Diagnosis)<-[:TREATS]-(treat)
+RETURN s, inv, e, ci, other, treat, u, care"""),
 
         ("GRAPH  Shift handoff (Sc.6) — Volkov night ⇄ Tanaka day around Morrison",
          """MATCH (s:AgentSession)-[inv:INVESTIGATED]->(e)
 WHERE s.agent_id IN ['volkov-night-shift', 'tanaka-day-shift']
 OPTIONAL MATCH (e)-[r1]->(connected)
 WHERE type(r1) IN ['DIAGNOSED_WITH','TREATED_BY','PRESCRIBED','HAD_ENCOUNTER','CONTRAINDICATED_WITH']
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(ph:Phase)
-RETURN s, inv, e, r1, connected, ph"""),
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(ph:Phase)
+RETURN s, inv, e, r1, connected, cp, ph"""),
 
         ("GRAPH  Hospital network — Region → Clusters → Agents → Facilities",
          """MATCH (c:Cluster)
@@ -2444,10 +2445,9 @@ WHERE labels(e)[0] IN ['Patient', 'Facility', 'Diagnosis']
 RETURN r, rc, c, m, s, inv, e"""),
 
         ("GRAPH  Drift cascade — states that triggered drift events",
-         """MATCH (st:SemanticState)-[t:TRIGGERED]->(d:DriftEvent)
-OPTIONAL MATCH (s:AgentSession)-[:CURRENT_STATE]->(current:SemanticState)
-OPTIONAL MATCH path = (current)-[:STATE_HISTORY*0..20]->(st)
-RETURN s, st, t, d"""),
+         """MATCH path = (s:AgentSession)-[:CURRENT_STATE]->(:SemanticState)
+             -[:STATE_HISTORY*0..]->(:SemanticState)-[:TRIGGERED]->(d:DriftEvent)
+RETURN path"""),
 
         ("GRAPH  Agent × Patient × Drift — Semvec investigation + clinical graph + drift events",
          """MATCH (s:AgentSession)-[inv:INVESTIGATED]->(pat:Patient)
@@ -2455,11 +2455,12 @@ MATCH (pat)-[dx:DIAGNOSED_WITH]->(diag:Diagnosis)
 OPTIONAL MATCH (pat)-[tb:TREATED_BY]->(prov:Provider)
 OPTIONAL MATCH (treat:Treatment)-[treats:TREATS]->(diag)
 OPTIONAL MATCH (treat)-[uses:USES]->(med:Medication)
-OPTIONAL MATCH (s)-[:CURRENT_STATE]->(st:SemanticState)-[tr:TRIGGERED]->(drift:DriftEvent)
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(phase:Phase)
-OPTIONAL MATCH (s)-[:MEMBER_OF]->(cluster:Cluster)
+OPTIONAL MATCH drift = (s)-[:CURRENT_STATE]->(:SemanticState)
+                       -[:STATE_HISTORY*0..]->(:SemanticState)-[:TRIGGERED]->(:DriftEvent)
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(phase:Phase)
+OPTIONAL MATCH (s)-[mo:MEMBER_OF]->(cluster:Cluster)
 RETURN s, inv, pat, dx, diag, tb, prov, treats, treat, uses, med,
-       st, tr, drift, phase, cluster"""),
+       drift, cp, phase, mo, cluster"""),
 
         ("GRAPH  Clinical network — patients → diagnoses ← treatments → medications",
          """MATCH (pat:Patient)-[dx:DIAGNOSED_WITH]->(diag:Diagnosis)
@@ -2472,16 +2473,16 @@ RETURN pat, dx, diag, tr, treat, u, med, tb, prov"""),
          """MATCH (m1:Medication)-[ci:CONTRAINDICATED_WITH]->(m2:Medication)
 OPTIONAL MATCH (prov:Provider)-[rx:PRESCRIBED]->(m1)
 OPTIONAL MATCH (s:AgentSession)-[inv:INVESTIGATED]->(m1)
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(phase:Phase)
-RETURN m1, ci, m2, prov, rx, s, inv, phase"""),
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(phase:Phase)
+RETURN m1, ci, m2, prov, rx, s, inv, cp, phase"""),
 
         ("GRAPH  Provider referral × Semvec — referrals + which agents investigated each provider",
          """MATCH (p1:Provider)-[ref:REFERRED_TO]->(p2:Provider)
 OPTIONAL MATCH (p1)-[a1:AFFILIATED_WITH]->(f1:Facility)
 OPTIONAL MATCH (p2)-[a2:AFFILIATED_WITH]->(f2:Facility)
 OPTIONAL MATCH (s:AgentSession)-[inv:INVESTIGATED]->(p1)
-OPTIONAL MATCH (s)-[:MEMBER_OF]->(cluster:Cluster)
-RETURN p1, ref, p2, a1, f1, a2, f2, s, inv, cluster"""),
+OPTIONAL MATCH (s)-[mo:MEMBER_OF]->(cluster:Cluster)
+RETURN p1, ref, p2, a1, f1, a2, f2, s, inv, mo, cluster"""),
 
         ("GRAPH  Patient journey × Semvec — encounters + which agents tracked each step",
          """MATCH (pat:Patient)-[he:HAD_ENCOUNTER]->(enc:Encounter)
@@ -2543,8 +2544,8 @@ RETURN go, obs, r, cc, c, det, a"""),
 
         ("GRAPH  Agent roster (cross-session) — Agent → RAN → its AgentSessions",
          """MATCH (a:Agent)-[ran:RAN]->(s:AgentSession)
-OPTIONAL MATCH (s)-[:CURRENT_PHASE]->(p:Phase)
-RETURN a, ran, s, p"""),
+OPTIONAL MATCH (s)-[cp:CURRENT_PHASE]->(p:Phase)
+RETURN a, ran, s, cp, p"""),
 
         ("GRAPH  Literal facts (Sc.4) — sessions → EXTRACTED → verbatim facts",
          """MATCH (s:AgentSession)-[ex:EXTRACTED]->(f:LiteralFact)

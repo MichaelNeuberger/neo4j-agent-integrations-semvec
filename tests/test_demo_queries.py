@@ -4,7 +4,8 @@
 from pathlib import Path
 
 import pytest
-from neo4j.graph import Node, Path as GraphPath, Relationship
+from neo4j.graph import Node, Relationship
+from neo4j.graph import Path as GraphPath
 
 from scripts.browser_guide import parse_queries
 
