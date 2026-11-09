@@ -187,24 +187,19 @@ RETURN s, inv, pat, diag, treat, med, drift, cluster
 
 ### Prerequisites
 
-- **Neo4j 5.11+** (Docker: `docker run -d -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26`)
-- **Python 3.10+** with GPU recommended for embeddings (CPU works too)
-- **OpenAI-compatible LLM endpoint** for agent responses *(optional — only needed for `interactive_demo.py` with LLM enabled)*
+- **Docker with Compose** — Neo4j 5.26 always runs as the `neo4j` service of
+  `docker-compose.yml`; seed script, demo and tests run in the same image
+- **OpenAI-compatible LLM endpoint** for agent responses *(optional — only needed for the demo with LLM enabled)*
+- *Optional:* **Python 3.10+** to run the demo or the tests outside a container
+  (GPU recommended for embeddings, CPU works too)
 
 ### Setup
 
 ```bash
 git clone https://github.com/VersinoPsiOmega/Semvec-neo4j-agent-integration.git
-cd neo4j-agent-integrations
+cd Semvec-neo4j-agent-integration
 
-# 1. Create the Python environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 2. Install the project (pulls in semvec, neo4j, sentence-transformers, …)
-uv pip install -e ".[dev]"     # or: pip install -e ".[dev]"
-
-# 3. Configure environment — every variable below is required.
+# 1. Configure environment — every variable below is required.
 #    The demo and tests refuse to start with missing values rather
 #    than falling back to silent defaults.
 cp .env.example .env
@@ -212,10 +207,14 @@ $EDITOR .env                   # fill in NEO4J_TEST_PASSWORD, SEMVEC_LICENSE_KEY
                                # (without a licence key semvec >= 0.8.9 throttles
                                #  to 5 QPS, which breaks seeding and the demo)
 
-# 4. Seed the healthcare graph in Neo4j (uses the fixtures bundled
-#    under healthcare-fixtures/ — same patients, providers, diagnoses
-#    and medications the demo scenarios reference by name).
-python scripts/seed_test_data.py
+# 2. Start Neo4j (browser :7474, bolt :7687) and the query guide (:7477).
+#    NEO4J_TEST_PASSWORD also sets the container's Neo4j password.
+docker compose up -d
+
+# 3. Seed the healthcare graph (uses the fixtures bundled under
+#    healthcare-fixtures/ — same patients, providers, diagnoses and
+#    medications the demo scenarios reference by name).
+docker compose run --rm seed
 ```
 
 > Want to regenerate the fixtures from scratch? Run
@@ -226,38 +225,35 @@ python scripts/seed_test_data.py
 ### Run the Demo
 
 ```bash
-python scripts/interactive_demo.py              # LLM enabled (default)
-python scripts/interactive_demo.py --no-llm     # skip LLM calls (shows N/A)
-```
-
-### Run with Docker
-
-No local Python or Neo4j needed — `docker-compose.yml` starts Neo4j 5.26 and
-runs the seed script, the demo and the tests in one image (CPU-only torch).
-Fill in `.env` as in step 3 above; `NEO4J_TEST_PASSWORD` also sets the
-container's Neo4j password, and `NEO4J_TEST_URI` is pointed at the `neo4j`
-service automatically.
-
-```bash
-docker compose up -d                                # Neo4j (browser :7476, bolt :7689) + query guide (:7477)
-docker compose run --rm seed                        # seed the healthcare graph (once)
-docker compose run --rm demo                        # interactive demo, LLM enabled
-docker compose run --rm demo python scripts/interactive_demo.py --no-llm
+docker compose run --rm demo                        # interactive demo, LLM enabled (default)
+docker compose run --rm demo python scripts/interactive_demo.py --no-llm   # skip LLM calls
 docker compose run --rm test                        # pytest against the container Neo4j
 docker compose down                                 # stop; add -v to drop the Neo4j data and model cache
 ```
 
-Neo4j Browser: open http://localhost:7476 and log in as `neo4j` with
-`NEO4J_TEST_PASSWORD`; the connect URL is pre-filled with `localhost:7689`
-(the host's bolt port, which the container advertises). After login the
-browser opens the guide "Semvec × Neo4j demo queries": the 22 queries of
-`docs/demo_queries.md`, one per step, each with a button to run it. The
-`guide` service renders it from that file on every request.
+Inside the containers `NEO4J_TEST_URI` is pointed at the `neo4j` service
+automatically. The first demo or seed run downloads the embedding model
+(~420 MB) into the `hf-cache` volume. If `OPENAI_BASE_URL` points at an LLM on
+your machine (`localhost`), use `host.docker.internal` instead — `localhost`
+inside a container is the container itself.
 
-The first demo or seed run downloads the embedding model (~420 MB) into the
-`hf-cache` volume. If `OPENAI_BASE_URL` points at an LLM on your machine
-(`localhost`), use `host.docker.internal` instead — `localhost` inside a
-container is the container itself.
+**Without a container** (local Python, same Neo4j): set
+`NEO4J_TEST_URI=bolt://localhost:7687` in `.env`, then
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+uv pip install -e ".[dev]"                          # or: pip install -e ".[dev]"
+python scripts/interactive_demo.py                  # add --no-llm to skip LLM calls
+python -m pytest
+```
+
+### Neo4j Browser
+
+Open http://localhost:7474 and log in as `neo4j` with `NEO4J_TEST_PASSWORD`
+(connect URL `localhost:7687`). After login the browser opens the guide
+"Semvec × Neo4j demo queries": the 22 queries of `docs/demo_queries.md`, one
+per step, each with a button to run it. The `guide` service renders it from
+that file on every request.
 
 ### Tuning Constants
 
@@ -296,11 +292,13 @@ model, expect the numeric thresholds to drift — re-tune by watching the
 ### Run Tests
 
 ```bash
-NEO4J_TEST_PASSWORD=password python -m pytest tests/ -v
+docker compose run --rm test       # in the container, against the neo4j service
+python -m pytest                   # locally, against bolt://localhost:7687 (see "Without a container")
 ```
 
-The unit tests for `SemvecClient` and the embedder run fully offline; the
-Neo4j-backed integration tests need a running database.
+The unit tests for `SemvecClient`, the drift rule, the browser guide and the
+embedder run fully offline; the Neo4j-backed integration tests need the `neo4j`
+service running (`docker compose up -d`) and skip otherwise.
 
 ---
 
