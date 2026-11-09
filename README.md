@@ -129,7 +129,7 @@ Two department clusters across two facilities:
 Both clusters are in a Semvec **Region** (`consensus_threshold=0.5`). A **Global Observer** monitors for cross-cluster anomalies. When both departments drift to admin topics simultaneously, the drift rule flags the pivot in both clusters and the Region records their drift events (two per department: the cluster run and its member session each publish), while the Observer samples for cross-cluster anomalies. On top of that signal, a **ConsensusEngine** runs an explicit qualified-majority vote (supervisor weighted 1.5) on whether to escalate to a network-wide incident.
 
 **Semvec signals**: `create_region`, `get_region_events`, `create_observer`, `observer_sample`, `get_anomalies`, `create_consensus_engine`, `submit_consensus_proposal`, `vote_on_consensus`, `evaluate_consensus`
-**Neo4j graph**: Region → CONTAINS_CLUSTER → Clusters → MEMBER_OF ← Agents → INVESTIGATED → Patient/Facility
+**Neo4j graph**: Region → CONTAINS_CLUSTER → Clusters → MEMBER_OF ← Agents → INVESTIGATED → Patient/Facility; the vote as Region → HAS_CONSENSUS_ENGINE → ConsensusEngine → PROPOSED → ConsensusProposal → RECEIVED_VOTE → ConsensusVote ← CAST ← Agents, and ConsensusProposal → DECIDED → ConsensusEvent ← CONSENSUS_EVENT ← Region
 
 ### Scenario 6: Shift Handoff (Layer 5 — Export/Import, Network Transfer)
 
@@ -325,6 +325,9 @@ Semvec Layer: AgentSession → SemanticState → DriftEvent
               AgentSession → Memory (tiered: short/medium/long)
               AgentSession → MEMBER_OF → Cluster
               Region → CONTAINS_CLUSTER → Cluster
+              Region → HAS_CONSENSUS_ENGINE → ConsensusEngine → PROPOSED → ConsensusProposal
+              ConsensusProposal → RECEIVED_VOTE → ConsensusVote ← CAST ← AgentSession
+              ConsensusProposal → DECIDED → ConsensusEvent ← CONSENSUS_EVENT ← Region
 
 Healthcare:   Patient → DIAGNOSED_WITH → Diagnosis
               Patient → TREATED_BY → Provider
@@ -335,6 +338,9 @@ Healthcare:   Patient → DIAGNOSED_WITH → Diagnosis
               Provider → REFERRED_TO → Provider
               Provider → AFFILIATED_WITH → Facility
               Patient → HAD_ENCOUNTER → Encounter
+              (only the domain ontology is imported: the generic POLE+O base types
+               Person / Organization / Location / Event / Object that create-context-graph
+               adds to every domain are left out, see scripts/healthcare_fixtures.py)
 
 Bridge:       AgentSession → INVESTIGATED {step, phase, drift_score, started_at, ended_at,
               duration_ms, query_preview, response_preview, top_k_similarity,

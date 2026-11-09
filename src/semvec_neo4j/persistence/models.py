@@ -155,8 +155,30 @@ class ConsensusEvent:
     timestamp: Optional[datetime] = None
     outcome: ConsensusOutcome = ConsensusOutcome.TIMEOUT
     vote_count: int = 0
-    threshold_used: float = 0.6
+    # None when the threshold is internal to the deciding engine (ConsensusEngine levels).
+    threshold_used: Optional[float] = 0.6
     drift_score_consensus: float = 0.0
+
+
+@dataclass
+class ConsensusVote:
+    voter: str
+    approve: bool
+    weight: float = 1.0
+
+
+@dataclass
+class ConsensusRound:
+    """One ConsensusEngine vote: engine, proposal, the votes cast and the verdict."""
+
+    engine_id: str
+    level: str
+    proposal_id: str
+    proposal_type: str
+    rationale: str
+    votes: list[ConsensusVote]
+    accepted: bool
+    ratio: float
 
 
 @dataclass

@@ -81,6 +81,7 @@ def clean_test_data(neo4j_driver, neo4j_schema):
         "AgentSession", "Agent", "SemanticState", "DriftEvent",
         "Phase", "Memory", "Cluster", "Region",
         "GlobalObserver", "ConsensusEvent", "AnomalyEvent", "LiteralFact",
+        "ConsensusEngine", "ConsensusProposal", "ConsensusVote",
     ]
     with neo4j_driver.session(database=NEO4J_DATABASE) as session:
         for label in labels:

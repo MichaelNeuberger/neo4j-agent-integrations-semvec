@@ -22,6 +22,8 @@ from semvec_neo4j.persistence.models import (
     AgentSession,
     AnomalyEvent,
     AnomalyType,
+    ConsensusRound,
+    ConsensusVote,
     DriftSeverity,
     GlobalObserver,
     LiteralFact,
@@ -41,6 +43,7 @@ from semvec_neo4j.persistence.neo4j_anomaly_event_store import (
     Neo4jAnomalyEventStore,
 )
 from semvec_neo4j.persistence.neo4j_literal_fact_store import Neo4jLiteralFactStore
+from semvec_neo4j.persistence.neo4j_consensus_store import Neo4jConsensusStore
 
 
 class SemvecMCPServer:
@@ -71,6 +74,7 @@ class SemvecMCPServer:
         self._observers = Neo4jGlobalObserverStore(driver, database)
         self._anomaly_events = Neo4jAnomalyEventStore(driver, database)
         self._literal_facts = Neo4jLiteralFactStore(driver, database)
+        self._consensus = Neo4jConsensusStore(driver, database)
 
         # DriftEvent nodes follow the client's drift verdict, so the persisted
         # nodes match what the demo reports and what reaches the regions.
@@ -297,6 +301,55 @@ class SemvecMCPServer:
             }
             for e in self._anomaly_events.get_anomaly_events(observer_id, limit)
         ]
+
+    # === Consensus (Neo4j persistence) ======================================
+
+    def run_consensus_round(
+        self,
+        region_id: str,
+        local_id: str,
+        network_id: str,
+        level: str,
+        voters: dict[str, float],
+        proposal_type: str,
+        rationale: str,
+        votes: dict[str, bool],
+    ) -> dict:
+        """Run one ConsensusEngine vote in Semvec and mirror it under the region.
+
+        ``voters`` maps each voting instance to its weight, ``votes`` maps
+        instances to approve (True) or reject (False). The round is stored as
+        (Region)-[:HAS_CONSENSUS_ENGINE]->(ConsensusEngine)-[:PROPOSED]->
+        (ConsensusProposal)-[:RECEIVED_VOTE]->(ConsensusVote), with votes of
+        agent sessions linked via (AgentSession)-[:CAST]->(ConsensusVote), and
+        the verdict as (ConsensusProposal)-[:DECIDED]->(ConsensusEvent).
+        Returns Semvec's verdict plus the proposal's status at submission.
+        """
+        engine_id = self._semvec.create_consensus_engine(
+            local_id=local_id, network_id=network_id, level=level
+        )["engine_id"]
+        for voter, weight in voters.items():
+            self._semvec.register_consensus_voter(engine_id, voter, weight=weight)
+        proposal = self._semvec.submit_consensus_proposal(
+            engine_id, proposal_type=proposal_type, proposed_state=[0.0] * 8, rationale=rationale
+        )
+        for voter, approve in votes.items():
+            self._semvec.vote_on_consensus(engine_id, proposal["proposal_id"], approve, voting_instance=voter)
+        verdict = self._semvec.evaluate_consensus(engine_id, proposal["proposal_id"])
+        self._consensus.store_round(
+            region_id,
+            ConsensusRound(
+                engine_id=engine_id,
+                level=level,
+                proposal_id=proposal["proposal_id"],
+                proposal_type=proposal_type,
+                rationale=rationale,
+                votes=[ConsensusVote(voter=v, approve=a, weight=voters.get(v, 1.0)) for v, a in votes.items()],
+                accepted=verdict["accepted"],
+                ratio=verdict["ratio"],
+            ),
+        )
+        return {**verdict, "submitted_status": proposal["status"]}
 
     # === Literal facts (Neo4j persistence) ==================================
 

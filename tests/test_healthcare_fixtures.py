@@ -8,6 +8,7 @@ from scripts.healthcare_fixtures import (
     domain_entities,
     domain_relationships,
     domain_schema_statements,
+    remove_excluded,
 )
 
 SCHEMA = """// Schema for Healthcare Context Graph
@@ -31,7 +32,7 @@ CREATE INDEX medication_name IF NOT EXISTS FOR (n:Medication) ON (n.name);
 
 @pytest.fixture(autouse=True)
 def clean_test_data():
-    """Override the conftest autouse fixture — pure-Python module, no Neo4j."""
+    """Override the conftest autouse fixture — the Neo4j test below sets up its own data."""
     yield
 
 
@@ -68,6 +69,36 @@ class TestDomainRelationships:
 
         # Assert
         assert [r["type"] for r in result] == ["TREATED_BY"]
+
+
+SEEDED_FIXTURES = {"entities": {"Person": [{"name": "hf-test-seeded"}], "Object": [{"name": "hf-test-object"}],
+                                "Patient": [{"name": "hf-test-patient"}]}}
+
+
+class TestRemoveExcluded:
+    def test_removes_only_what_earlier_seeds_created(self, neo4j_driver):
+        # Arrange: seeded leftovers, plus a foreign Person node and index that are not ours
+        neo4j_driver.execute_query("CREATE INDEX person_name IF NOT EXISTS FOR (n:Person) ON (n.name)")
+        neo4j_driver.execute_query("CREATE INDEX hf_test_foreign IF NOT EXISTS FOR (n:Person) ON (n.hf_test)")
+        neo4j_driver.execute_query(
+            "CREATE (:Person {name: 'hf-test-seeded'}), (:Object {name: 'hf-test-object'}), "
+            "(:Person {name: 'hf-test-foreign'}), (:Patient {name: 'hf-test-patient'})"
+        )
+
+        # Act
+        try:
+            remove_excluded(neo4j_driver, "neo4j", SEEDED_FIXTURES, SCHEMA)
+            names = {r["n"] for r in neo4j_driver.execute_query(
+                "MATCH (n) WHERE n.name STARTS WITH 'hf-test' RETURN n.name AS n").records}
+            indexes = {r["name"] for r in neo4j_driver.execute_query(
+                "SHOW INDEXES YIELD name WHERE name IN ['person_name', 'hf_test_foreign'] RETURN name").records}
+        finally:
+            neo4j_driver.execute_query("MATCH (n) WHERE n.name STARTS WITH 'hf-test' DETACH DELETE n")
+            neo4j_driver.execute_query("DROP INDEX hf_test_foreign IF EXISTS")
+
+        # Assert
+        assert names == {"hf-test-foreign", "hf-test-patient"}
+        assert indexes == {"hf_test_foreign"}
 
 
 class TestDomainSchemaStatements:

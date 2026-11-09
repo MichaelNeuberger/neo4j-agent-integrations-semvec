@@ -117,6 +117,14 @@ class TestNeo4jConsensusStore:
         # Assert
         assert event.outcome is ConsensusOutcome.DISAGREED
 
+    def test_unknown_region_raises_instead_of_writing_nothing(self, neo4j_driver, vote_round):
+        # Arrange
+        store = Neo4jConsensusStore(neo4j_driver, database="neo4j")
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="Region not found"):
+            store.store_round("no-such-region", vote_round)
+
     def test_no_consensus_node_is_left_unconnected(self, neo4j_driver, region, vote_round):
         # Arrange
         store = Neo4jConsensusStore(neo4j_driver, database="neo4j")

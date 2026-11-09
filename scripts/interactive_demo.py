@@ -298,6 +298,7 @@ _SEMVEC_LABELS = [
     "AgentSession", "Agent", "SemanticState", "DriftEvent", "Phase",
     "Memory", "Cluster", "Region",
     "GlobalObserver", "ConsensusEvent", "AnomalyEvent", "LiteralFact",
+    "ConsensusEngine", "ConsensusProposal", "ConsensusVote",
 ]
 # Healthcare labels that must NEVER be deleted
 _HEALTHCARE_LABELS = {
@@ -1912,38 +1913,26 @@ def scenario_hospital_consensus(mcp: SemvecMCPServer, driver):
     # ── Step 7: Cortex ConsensusEngine — qualified majority vote ──
     subheader("Step 7: Cortex ConsensusEngine — qualified-majority vote on admin-pivot drift")
     try:
-        eng = semvec.create_consensus_engine(
+        # Runs the vote in Semvec and mirrors engine, proposal, votes and the
+        # verdict under the region: Region -> ConsensusEngine -> ConsensusProposal
+        # -> ConsensusVote (cast by the cluster sessions) and -> ConsensusEvent.
+        # Cardiology + supervisor say yes (admin signal is real), emergency
+        # says no (we want a non-trivial split).
+        verdict = mcp.run_consensus_round(
+            region_id=rid,
             local_id="hospital-orchestrator",
             network_id="hospital-network",
             level="qualified_majority",
-        )
-        eid = eng["engine_id"]
-        for inst, weight in [
-            ("cardio-memorial", 1.0),
-            ("emerg-riverside", 1.0),
-            ("hospital-supervisor", 1.5),
-        ]:
-            semvec.register_consensus_voter(eid, inst, weight=weight)
-
-        proposal = semvec.submit_consensus_proposal(
-            eid,
+            voters={"cardio-memorial": 1.0, "emerg-riverside": 1.0, "hospital-supervisor": 1.5},
             proposal_type="admin_pivot_alert",
-            proposed_state=[0.0] * 8,
             rationale=(
                 "Both cardiology and emergency clusters drifted to "
                 "facility-admin queries within the vote window — promote "
                 "to a hospital-wide IT incident?"
             ),
+            votes={"cardio-memorial": True, "emerg-riverside": False, "hospital-supervisor": True},
         )
-        pid = proposal["proposal_id"]
-        info("Proposal", f"{pid[:24]}...  status={proposal['status']}")
-
-        # Cardiology + supervisor say yes (admin signal is real),
-        # emergency abstains via "no" (we want a non-trivial split).
-        semvec.vote_on_consensus(eid, pid, True, voting_instance="cardio-memorial")
-        semvec.vote_on_consensus(eid, pid, False, voting_instance="emerg-riverside")
-        semvec.vote_on_consensus(eid, pid, True, voting_instance="hospital-supervisor")
-        verdict = semvec.evaluate_consensus(eid, pid)
+        info("Proposal", f"{verdict['proposal_id'][:24]}...  status={verdict['submitted_status']}")
         colour = GREEN if verdict["accepted"] else YELLOW
         info(
             "Verdict",
@@ -1962,6 +1951,7 @@ def scenario_hospital_consensus(mcp: SemvecMCPServer, driver):
     info("Pivot query", "Both clusters drift on admin-topic pivot (step 5)")
     info("Cortex consensus", "qualified-majority vote on the pivot alert")
     info("Neo4j", "Region → CONTAINS_CLUSTER → Clusters → MEMBER_OF ← Sessions")
+    info("", "Region → ConsensusEngine → Proposal → Votes ← Sessions, Proposal → ConsensusEvent")
 
     # Cleanup Semvec — use ``c_id`` so we don't shadow ``cid_a``/``cid_b``.
     for c_id in [cid_a, cid_b]:

@@ -12,6 +12,7 @@ from semvec_neo4j.persistence.models import (
     AnomalyEvent,
     Cluster,
     ConsensusEvent,
+    ConsensusRound,
     DriftEvent,
     DriftSeverity,
     GlobalObserver,
@@ -316,3 +317,11 @@ class LiteralFactStore(ABC):
     @abstractmethod
     def get_fact_count(self, session_id: str) -> int:
         """Count literal facts for a session."""
+
+
+class ConsensusStore(ABC):
+    """Manages ConsensusEngine vote rounds — engine, proposal, votes and outcome."""
+
+    @abstractmethod
+    def store_round(self, region_id: str, vote_round: ConsensusRound) -> ConsensusEvent:
+        """Store one vote round under the region and return its outcome event."""

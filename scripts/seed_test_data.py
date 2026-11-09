@@ -32,6 +32,14 @@ from semvec_neo4j.persistence.neo4j_cluster_store import Neo4jClusterStore
 from semvec_neo4j.persistence.neo4j_region_store import Neo4jRegionStore
 from semvec_neo4j.persistence.adapter import Neo4jSemvecAdapter
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scripts.healthcare_fixtures import (  # noqa: E402
+    domain_entities,
+    domain_relationships,
+    domain_schema_statements,
+    remove_excluded,
+)
+
 
 _required = ("NEO4J_TEST_URI", "NEO4J_TEST_USER", "NEO4J_TEST_PASSWORD", "NEO4J_TEST_DATABASE")
 _missing = [n for n in _required if not os.environ.get(n)]
@@ -68,20 +76,24 @@ def seed_healthcare_graph(driver, fixtures: dict):
     """Load healthcare entities and relationships into Neo4j."""
     print("\n=== Seeding Healthcare Knowledge Graph ===")
 
+    schema = ""
     if os.path.exists(HEALTHCARE_SCHEMA_PATH):
         with open(HEALTHCARE_SCHEMA_PATH) as f:
             schema = f.read()
-        with driver.session(database=NEO4J_DATABASE) as session:
-            for stmt in schema.split(";"):
-                stmt = stmt.strip()
-                if stmt and not stmt.startswith("//"):
-                    try:
-                        session.run(stmt).consume()
-                    except Exception:
-                        pass
-        print("  Healthcare schema applied")
+    # Earlier seeds imported the generic base types too; clear exactly those from existing databases.
+    remove_excluded(driver, NEO4J_DATABASE, fixtures, schema)
 
-    entities = fixtures.get("entities", {})
+    if schema:
+        with driver.session(database=NEO4J_DATABASE) as session:
+            for stmt in domain_schema_statements(schema):
+                try:
+                    session.run(stmt).consume()
+                except Exception:
+                    pass
+        print("  Healthcare schema applied (domain labels only)")
+
+    # Only the domain ontology is imported; see scripts/healthcare_fixtures.py.
+    entities = domain_entities(fixtures.get("entities", {}))
     total_entities = 0
 
     with driver.session(database=NEO4J_DATABASE) as session:
@@ -94,7 +106,7 @@ def seed_healthcare_graph(driver, fixtures: dict):
                 total_entities += 1
             print(f"  {label}: {len(items)} entities")
 
-    relationships = fixtures.get("relationships", [])
+    relationships = domain_relationships(fixtures.get("relationships", []))
     rels_loaded = 0
     rels_skipped = 0
     with driver.session(database=NEO4J_DATABASE) as session:
