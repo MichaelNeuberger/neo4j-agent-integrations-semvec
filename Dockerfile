@@ -21,6 +21,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN uv pip install ".[dev]" && rm -rf build
 
+COPY docs ./docs
 COPY schema ./schema
 COPY healthcare-fixtures ./healthcare-fixtures
 COPY scripts ./scripts

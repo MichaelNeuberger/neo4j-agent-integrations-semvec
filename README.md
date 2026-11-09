@@ -239,7 +239,7 @@ container's Neo4j password, and `NEO4J_TEST_URI` is pointed at the `neo4j`
 service automatically.
 
 ```bash
-docker compose up -d neo4j                          # Neo4j: browser :7476, bolt :7689 on the host
+docker compose up -d                                # Neo4j (browser :7476, bolt :7689) + query guide (:7477)
 docker compose run --rm seed                        # seed the healthcare graph (once)
 docker compose run --rm demo                        # interactive demo, LLM enabled
 docker compose run --rm demo python scripts/interactive_demo.py --no-llm
@@ -249,7 +249,10 @@ docker compose down                                 # stop; add -v to drop the N
 
 Neo4j Browser: open http://localhost:7476 and log in as `neo4j` with
 `NEO4J_TEST_PASSWORD`; the connect URL is pre-filled with `localhost:7689`
-(the host's bolt port, which the container advertises).
+(the host's bolt port, which the container advertises). After login the
+browser opens the guide "Semvec × Neo4j demo queries": the 22 queries of
+`docs/demo_queries.md`, one per step, each with a button to run it. The
+`guide` service renders it from that file on every request.
 
 The first demo or seed run downloads the embedding model (~420 MB) into the
 `hf-cache` volume. If `OPENAI_BASE_URL` points at an LLM on your machine
